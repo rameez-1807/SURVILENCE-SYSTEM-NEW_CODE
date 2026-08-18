@@ -53,7 +53,7 @@ The **AI Surveillance System** is an enterprise-grade platform designed to provi
 ```bash
 # Clone the repository
 git clone https://github.com/rameez-1807/SURVILENCE-SYSTEM-NEW_CODE.git
-cd "AI SURVILLENCE SYSTEM"
+cd "AI SURVILLENCE SYSTEM/backend"
 
 # Create and activate a virtual environment
 python -m venv venv
@@ -82,7 +82,7 @@ alembic upgrade head
 ### 2. Frontend Setup
 
 ```bash
-cd frontend
+cd ../frontend
 
 # Install Node modules
 npm install
@@ -94,7 +94,7 @@ npm install
 
 **Run the Backend:**
 ```bash
-# From the root directory (ensure venv is activated)
+# From the backend directory (ensure venv is activated)
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 *API Docs available at: `http://localhost:8000/docs`*
@@ -111,16 +111,14 @@ npm run dev
 ## 🏗️ Architecture & Structure
 ```text
 .
-├── app/                  # FastAPI Backend application
-│   ├── api/              # API routes & endpoints
-│   ├── core/             # Configuration & security
-│   ├── models/           # SQLAlchemy ORM definitions
-│   └── schemas/          # Pydantic validation schemas
+├── backend/              # FastAPI Backend application
+│   ├── app/              # API routes, models, schemas
+│   ├── alembic/          # Database migration scripts
+│   ├── tests/            # Pytest unit & integration tests
+│   └── requirements.txt  # Python dependencies
 ├── frontend/             # React Vite Frontend application
 │   ├── src/              # React components, pages, & logic
 │   └── public/           # Static assets
-├── alembic/              # Database migration scripts
-├── tests/                # Pytest unit & integration tests
 └── README.md             # Project documentation
 ```
 
