@@ -1,16 +1,18 @@
 <div align="center">
   <br />
-  <img src="https://img.icons8.com/?size=512&id=114402&format=png" alt="Frontend Logo" width="100" />
+  <img src="https://img.icons8.com/?size=512&id=114402&format=png" alt="Frontend Logo" width="120" />
+  <br />
   <br />
 
-  <h1>🎨 <strong>AI Surveillance - Frontend Interface</strong></h1>
-  <p><strong>A stunning, high-performance, real-time dashboard for intelligent monitoring.</strong></p>
+  <h1>🎨 <strong>AI Surveillance Frontend Interface</strong></h1>
+  <p><strong>A Next-Gen, High-Performance Dashboard for Real-Time Security & Biometric Attendance Monitoring</strong></p>
 
   <p>
-    <a href="https://react.dev/"><img src="https://img.shields.io/badge/React-19-20232A?style=for-the-badge&logo=react&logoColor=61DAFB" alt="React 19" /></a>
-    <a href="https://vitejs.dev/"><img src="https://img.shields.io/badge/Vite-v8-B73BFE?style=for-the-badge&logo=vite&logoColor=FFD62E" alt="Vite" /></a>
-    <a href="https://tailwindcss.com/"><img src="https://img.shields.io/badge/Tailwind_CSS-v4-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white" alt="Tailwind CSS 4" /></a>
-    <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" /></a>
+    <a href="https://react.dev/"><img src="https://img.shields.io/badge/React_19-20232A?style=for-the-badge&logo=react&logoColor=61DAFB" alt="React 19" /></a>
+    <a href="https://vitejs.dev/"><img src="https://img.shields.io/badge/Vite_8-B73BFE?style=for-the-badge&logo=vite&logoColor=FFD62E" alt="Vite 8" /></a>
+    <a href="https://tailwindcss.com/"><img src="https://img.shields.io/badge/Tailwind_CSS_v4-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white" alt="Tailwind CSS 4" /></a>
+    <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-5.0+-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" /></a>
+    <a href="https://recharts.org/"><img src="https://img.shields.io/badge/Recharts-3.0+-22B5BF?style=for-the-badge" alt="Recharts" /></a>
   </p>
 </div>
 
@@ -18,85 +20,82 @@
 
 ## 🌟 Overview
 
-The frontend interface of the **AI Surveillance System** is meticulously crafted for extreme performance, real-time interactivity, and a premium aesthetic feel. 
+The frontend interface of the **AI Surveillance System** is designed for high-density information display, real-time video stream viewing, biometric employee registration, facial recognition, and event management.
 
-Using bleeding-edge web technologies, it seamlessly consumes the FastAPI backend to visualize high-resolution streams, rich analytics, real-time security events, and complex multi-tenant administration workflows—all wrapped in a highly polished, glassmorphic UI.
-
----
-
-## 🚀 Technical Highlights
-
-- **Lightning Fast**: Bootstrapped with `Vite` and `React 19` for near-instant rendering and hot module replacement.
-- **Edge AI**: Offloads heavy facial recognition to the client device using `face-api.js`, saving massive backend compute costs.
-- **Dynamic Visualization**: Real-time interactive charts and analytics via `Recharts`.
-- **Beautiful UI Components**: Tailor-made, fully responsive components utilizing `Tailwind CSS v4`, `clsx`, and `tailwind-merge` for conditional styling.
-- **Iconography**: Crisp, scalable SVG icons provided by `Lucide React`.
-- **Robust State**: Fully strictly-typed data fetching with `Axios` and structured navigation with `React Router v7`.
+Built with **React 19** and **Tailwind CSS v4**, it provides fluid transitions, sleek glassmorphism themes, responsive charts, and modal-driven workflows.
 
 ---
 
-## 📦 Installation & Setup
+## 🚀 Key Interface Modules
 
-Ensure you have **Node.js 20+** installed on your system.
+### 📊 Dashboard & Analytics
+- Overview stats for active cameras, total detected events, and attendance summary.
+- Real-time incident charts powered by `Recharts`.
 
-### 1. Install Dependencies
+### 🪪 Biometric Attendance Management
+- Live attendance logging table with check-in & check-out timestamps.
+- **Manual Registration Modal**: Register new employees with department, designation, and ID credentials.
+- **Face Recognition Modal**: Interactive edge face recognition using `face-api.js` weights stored in `public/models/`.
+
+### 🎥 Multi-Camera Grid & Live View
+- View real-time RTSP/WebRTC streams side-by-side with stream profile toggles and camera site tagging.
+
+### 🛡️ Security Incidents & Rule Engine
+- Event hub showing evidence snapshots, detection bounding boxes, and severity filters.
+
+---
+
+## 🛠️ Tech Stack & Utilities
+
+- **Core**: React 19 + TypeScript + Vite 8
+- **Styling**: Tailwind CSS v4, Lucide React Icons
+- **Utility Functions**: `clsx` & `tailwind-merge` (`cn` helper) for dynamic class merging
+- **HTTP Client**: Axios with configured base URLs and Authorization headers
+- **Edge AI**: `face-api.js` model weights offloaded in client browser
+
+---
+
+## 📁 Directory Structure
+
+```text
+frontend/
+├── public/                 # Static assets & face-api.js neural net weights
+├── src/                    
+│   ├── components/         # Reusable UI Blocks
+│   │   ├── layout/         # AppLayout, Header, Sidebar navigation
+│   │   ├── ManualRegistrationModal.tsx # Employee registration form
+│   │   └── FaceRecognitionModal.tsx   # Face scanning & matching modal
+│   ├── lib/                # API client (`api.ts`) & configuration
+│   ├── pages/              # Primary Route Components
+│   │   ├── Dashboard.tsx   # Operational overview & analytics
+│   │   ├── Attendance.tsx  # Employee attendance table & logs
+│   │   ├── LiveView.tsx    # Multi-camera grid view
+│   │   ├── Objects.tsx     # AI Detection log page
+│   │   └── Events.tsx      # Security alert events
+│   ├── utils/              # Helper utilities (`cn.ts`)
+│   ├── App.tsx             # Main routing shell
+│   └── main.tsx            # Application entry point
+├── package.json            # NPM scripts & dependencies
+└── vite.config.ts          # Vite build settings
+```
+
+---
+
+## 💻 Running the App
+
 ```bash
+# Install dependencies
 npm install
+
+# Start Vite hot-reloading dev server
+npx vite --host 0.0.0.0
 ```
 
-### 2. Configure Environment variables
-Ensure you create a `.env.local` if needed, mapping the backend API URLs. By default, Axios points to `/api/v1` or your configured base URL.
-
----
-
-## 🛠️ Development
-
-To start the development server with Hot Module Replacement (HMR):
-
-```bash
-npm run dev
-```
-
-The application will be accessible at:
+Access the application in your browser:
 👉 **[http://localhost:5173](http://localhost:5173)**
 
 ---
 
-## 🏗️ Build for Production
-
-When you are ready to deploy to production, run:
-
-```bash
-npm run build
-```
-
-This will generate an optimized, minified bundle in the `dist` folder. You can preview the production build using:
-```bash
-npm run preview
-```
-
----
-
-## 📁 Folder Structure
-
-```text
-frontend/
-├── public/                 # Static assets (images, AI models for face-api.js)
-├── src/                    
-│   ├── assets/             # Bundled static assets
-│   ├── components/         # Reusable presentation and functional components
-│   ├── lib/                # API integrations and utility classes
-│   ├── pages/              # High-level route views (Dashboard, Live, Objects)
-│   ├── utils/              # Helper functions (cn for Tailwind)
-│   ├── App.tsx             # Root Component
-│   ├── index.css           # Global Tailwind entries
-│   └── main.tsx            # React DOM injection point
-├── package.json            # NPM Scripts and Dependencies
-└── tailwind.config.js      # Tailwind v4 configuration
-```
-
----
-
 <div align="center">
-  <sub>Designed with precision. Crafted with passion.</sub>
+  <sub>Designed with precision • Built for performance</sub>
 </div>
