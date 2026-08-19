@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
+import sqlalchemy as sa
 from sqlalchemy import Column, Float, ForeignKey, String, DateTime, Index, Boolean, Integer, JSON
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base
@@ -10,9 +10,9 @@ from app.db.base import Base
 class Rule(Base):
     __tablename__ = "rules"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
-    site_id = Column(UUID(as_uuid=True), ForeignKey("sites.id", ondelete="CASCADE"), nullable=True)
+    id = Column(sa.Uuid(), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(sa.Uuid(), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    site_id = Column(sa.Uuid(), ForeignKey("sites.id", ondelete="CASCADE"), nullable=True)
     
     name = Column(String, nullable=False)
     enabled = Column(Boolean, nullable=False, default=True)

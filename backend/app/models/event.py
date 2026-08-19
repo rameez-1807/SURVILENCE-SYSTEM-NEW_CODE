@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
+import sqlalchemy as sa
 from sqlalchemy import Column, Float, ForeignKey, String, DateTime, Index, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base
@@ -10,11 +10,11 @@ from app.db.base import Base
 class Event(Base):
     __tablename__ = "events"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
-    site_id = Column(UUID(as_uuid=True), ForeignKey("sites.id", ondelete="CASCADE"), nullable=False)
-    camera_id = Column(UUID(as_uuid=True), ForeignKey("cameras.id", ondelete="CASCADE"), nullable=False)
-    rule_id = Column(UUID(as_uuid=True), ForeignKey("rules.id", ondelete="SET NULL"), nullable=True)
+    id = Column(sa.Uuid(), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(sa.Uuid(), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    site_id = Column(sa.Uuid(), ForeignKey("sites.id", ondelete="CASCADE"), nullable=False)
+    camera_id = Column(sa.Uuid(), ForeignKey("cameras.id", ondelete="CASCADE"), nullable=False)
+    rule_id = Column(sa.Uuid(), ForeignKey("rules.id", ondelete="SET NULL"), nullable=True)
 
     event_type = Column(String, nullable=False)
     severity = Column(String, nullable=False, default="low") # low, medium, high, critical
@@ -52,9 +52,9 @@ class Event(Base):
 class EventAudit(Base):
     __tablename__ = "event_audits"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    event_id = Column(UUID(as_uuid=True), ForeignKey("events.id", ondelete="CASCADE"), nullable=False)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    id = Column(sa.Uuid(), primary_key=True, default=uuid.uuid4)
+    event_id = Column(sa.Uuid(), ForeignKey("events.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(sa.Uuid(), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     
     previous_state = Column(String, nullable=False)
     new_state = Column(String, nullable=False)

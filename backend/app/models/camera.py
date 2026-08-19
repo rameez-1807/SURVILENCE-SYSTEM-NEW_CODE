@@ -9,8 +9,8 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
+import sqlalchemy as sa
 from sqlalchemy import DateTime, Enum, ForeignKey, String, text
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -30,19 +30,19 @@ class Camera(Base):
     __tablename__ = "cameras"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+        sa.Uuid(),
         primary_key=True,
         default=uuid.uuid4,
         server_default=text("gen_random_uuid()"),
     )
     tenant_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+        sa.Uuid(),
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     site_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+        sa.Uuid(),
         ForeignKey("sites.id", ondelete="CASCADE"),
         nullable=False,
         index=True,

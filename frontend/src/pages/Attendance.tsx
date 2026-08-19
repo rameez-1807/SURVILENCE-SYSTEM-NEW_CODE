@@ -46,12 +46,11 @@ export default function Attendance() {
       setError(null);
       setApiMissing(false);
       
-      const endpoint = activeTab === 'employees' ? '/employees' : '/attendance';
-      
-      const res = await api.get(endpoint);
       if (activeTab === 'employees') {
+        const res = await api.get('/employees');
         setEmployees(res.data.items || []);
       } else {
+        const res = await api.get('/attendance');
         setRecords(res.data.items || []);
       }
     } catch (err: any) {
@@ -304,7 +303,7 @@ export default function Attendance() {
                         <td className="px-6 py-4">{idx + 1}</td>
                         <td className="px-6 py-4">{rec.employee_id}</td>
                         <td className="px-6 py-4 font-medium text-text">{rec.employee_name}</td>
-                        <td className="px-6 py-4">{rec.date}</td>
+                        <td className="px-6 py-4">{rec.attendance_date}</td>
                         <td className="px-6 py-4 text-text">{rec.first_seen}</td>
                         <td className="px-6 py-4 text-text">{rec.last_seen}</td>
                         <td className="px-6 py-4">{rec.camera_name}</td>
@@ -328,8 +327,7 @@ export default function Attendance() {
         isOpen={isRegistrationModalOpen} 
         onClose={() => setIsRegistrationModalOpen(false)} 
         onSuccess={() => {
-          alert("Employee registered successfully!");
-          if (activeTab === 'employees') fetchData();
+          fetchData();
         }}
       />
 
@@ -337,7 +335,6 @@ export default function Attendance() {
         isOpen={isManualRegistrationOpen}
         onClose={() => setIsManualRegistrationOpen(false)}
         onSuccess={() => {
-          alert("Manual registration successful!");
           fetchData();
         }}
         type={activeTab}

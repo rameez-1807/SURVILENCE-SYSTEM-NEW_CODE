@@ -20,7 +20,8 @@ export function ManualRegistrationModal({ isOpen, onClose, onSuccess, type }: Ma
   
   // Specific to records
   const [date, setDate] = useState('');
-  const [time, setTime] = useState('');
+  const [checkIn, setCheckIn] = useState('');
+  const [checkOut, setCheckOut] = useState('');
 
   // Specific to employees
   const [department, setDepartment] = useState('');
@@ -71,7 +72,8 @@ export function ManualRegistrationModal({ isOpen, onClose, onSuccess, type }: Ma
       setEmpId('');
       setName('');
       setDate('');
-      setTime('');
+      setCheckIn('');
+      setCheckOut('');
       setDepartment('');
       setDesignation('');
       setError(null);
@@ -139,6 +141,10 @@ export function ManualRegistrationModal({ isOpen, onClose, onSuccess, type }: Ma
       setError('Please fill required fields.');
       return;
     }
+    if (type === 'records' && (!date || !checkIn || !checkOut)) {
+      setError('Please fill in Date, Check-In and Check-Out time.');
+      return;
+    }
 
     try {
       setLoading(true);
@@ -153,14 +159,21 @@ export function ManualRegistrationModal({ isOpen, onClose, onSuccess, type }: Ma
           face_encoding: capturedFace
         });
       } else {
-        // Simulating API call for attendance records since backend may not be fully implemented
-        await new Promise(resolve => setTimeout(resolve, 800));
+        // Real API call to create attendance record
+        await api.post('/attendance', {
+          employee_id: empId,
+          attendance_date: date,
+          first_seen: checkIn,
+          last_seen: checkOut,
+          camera_name: 'Manual Entry',
+          confidence: 100.0,
+        });
       }
 
       onSuccess();
       onClose();
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to manually register data.');
+      setError(err.response?.data?.detail || 'Failed to save record. Make sure the Employee ID is registered first.');
     } finally {
       setLoading(false);
     }
@@ -266,7 +279,7 @@ export function ManualRegistrationModal({ isOpen, onClose, onSuccess, type }: Ma
             {type === 'records' && (
               <>
                 <div className="space-y-1">
-                  <label className="text-sm font-medium text-text-muted">Date</label>
+                  <label className="text-sm font-medium text-text-muted">Date *</label>
                   <input 
                     type="date" 
                     value={date}
@@ -275,11 +288,20 @@ export function ManualRegistrationModal({ isOpen, onClose, onSuccess, type }: Ma
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-sm font-medium text-text-muted">Time</label>
+                  <label className="text-sm font-medium text-text-muted">Check-In Time *</label>
                   <input 
                     type="time" 
-                    value={time}
-                    onChange={e => setTime(e.target.value)}
+                    value={checkIn}
+                    onChange={e => setCheckIn(e.target.value)}
+                    className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary text-text placeholder-text-muted"
+                  />
+                </div>
+                <div className="space-y-1 col-span-2">
+                  <label className="text-sm font-medium text-text-muted">Check-Out Time *</label>
+                  <input 
+                    type="time" 
+                    value={checkOut}
+                    onChange={e => setCheckOut(e.target.value)}
                     className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary text-text placeholder-text-muted"
                   />
                 </div>
@@ -327,7 +349,7 @@ export function ManualRegistrationModal({ isOpen, onClose, onSuccess, type }: Ma
             className="flex items-center gap-2 px-6 py-2 bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:hover:bg-primary text-white rounded-md transition-colors text-sm font-medium"
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-            Save Record
+            {type === 'employees' ? 'Register Employee' : 'Save Attendance'}
           </button>
         </div>
         
