@@ -256,7 +256,13 @@ export default function Attendance() {
                       <tr key={emp.id} className="border-b border-border hover:bg-surface-hover/80 transition-colors group">
                         <td className="px-6 py-4">{idx + 1}</td>
                         <td className="px-6 py-4">
-                          <img src={emp.photo_url} alt="Profile" className="w-8 h-8 rounded-full object-cover bg-surface-hover" />
+                          {emp.photo_url ? (
+                            <img src={emp.photo_url} alt="Profile" className="w-8 h-8 rounded-full object-cover bg-surface-hover" />
+                          ) : (
+                            <div className="w-8 h-8 rounded-full bg-primary/20 text-primary border border-primary/30 flex items-center justify-center font-bold text-xs uppercase">
+                              {emp.name ? emp.name.charAt(0) : 'E'}
+                            </div>
+                          )}
                         </td>
                         <td className="px-6 py-4">{emp.employee_id}</td>
                         <td className="px-6 py-4 font-medium text-text">{emp.name}</td>

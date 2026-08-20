@@ -25,10 +25,10 @@ class AttendanceService:
 
     async def create_record(self, obj_in: AttendanceRecordCreate) -> AttendanceRecordResponse:
         """
-        Create a manual attendance record.
-        Looks up the employee by their string employee_id to get the UUID.
+        Create or update an attendance record.
+        Looks up the employee by string employee_id and prevents duplicate daily rows.
         """
-        # Find employee by their string ID (e.g. "EMP-001")
+        # Find employee by string ID (e.g. "EMP-001")
         employee = await self.emp_repo.get_by_employee_id(obj_in.employee_id)
         if not employee:
             raise HTTPException(
@@ -36,8 +36,14 @@ class AttendanceService:
                 detail=f"Employee with ID '{obj_in.employee_id}' not found. Please register the employee first."
             )
 
-        # Create record
-        record = await self.repo.create(obj_in, employee_uuid=employee.id)
+        # Check for existing attendance on the same date for this employee
+        existing_record = await self.repo.get_by_employee_and_date(employee.id, obj_in.attendance_date)
+        if existing_record:
+            # Update last_seen timestamp on existing record to prevent duplicates
+            record = await self.repo.update_last_seen(existing_record, obj_in.last_seen, obj_in.confidence)
+        else:
+            # Create new record
+            record = await self.repo.create(obj_in, employee_uuid=employee.id)
 
         # Build response with joined employee fields
         return AttendanceRecordResponse(

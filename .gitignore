@@ -13,8 +13,15 @@ venv/
 .venv/
 env/
 
-# Environment variables
+# Environment variables & secrets
 .env
+*.env
+backend/.env
+frontend/.env
+
+# SQLite Database
+*.db
+backend/*.db
 
 # IDE
 .vscode/

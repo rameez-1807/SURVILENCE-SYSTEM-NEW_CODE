@@ -16,6 +16,8 @@ from app.api.v1.events import router as events_router
 from app.api.v1.websockets import router as websockets_router
 from app.api.v1.employees import router as employees_router
 from app.api.v1.attendance import router as attendance_router
+from app.api.v1.recognition_history import router as recognition_history_router
+from app.api.v1.vehicles import router as vehicles_router
 
 api_v1_router = APIRouter(prefix="/api/v1")
 
@@ -29,3 +31,6 @@ api_v1_router.include_router(events_router)
 api_v1_router.include_router(websockets_router)
 api_v1_router.include_router(employees_router)
 api_v1_router.include_router(attendance_router)
+api_v1_router.include_router(recognition_history_router)
+api_v1_router.include_router(vehicles_router)
+

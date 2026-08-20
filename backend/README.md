@@ -3,15 +3,15 @@
   <img src="https://img.icons8.com/?size=512&id=v9pIqV60v1mO&format=png" alt="Backend Logo" width="100" />
   <br />
 
-  <h1>🧠 <strong>AI Surveillance Backend Engine</strong></h1>
-  <p><strong>FastAPI-Powered Real-Time Analytics, Multi-Tenant Security & Attendance REST API Service</strong></p>
+  <h1>🧠 <strong>AI Surveillance Backend Service</strong></h1>
+  <p><strong>FastAPI-Powered Real-Time Video Analytics, ANPR Vehicle Engine, Groq AI Multimodal Vision & Biometric Attendance REST API</strong></p>
 
   <p>
     <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.110+-005571?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI" /></a>
+    <a href="https://groq.com/"><img src="https://img.shields.io/badge/Groq_Vision_AI-f55036?style=for-the-badge&logo=groq&logoColor=white" alt="Groq Vision AI" /></a>
     <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.12" /></a>
     <a href="https://www.sqlalchemy.org/"><img src="https://img.shields.io/badge/SQLAlchemy-2.0+-D71F00?style=for-the-badge&logo=sqlalchemy&logoColor=white" alt="SQLAlchemy 2.0" /></a>
     <a href="https://alembic.sqlalchemy.org/"><img src="https://img.shields.io/badge/Alembic-Migrations-6B1724?style=for-the-badge" alt="Alembic" /></a>
-    <a href="https://pydantic.dev/"><img src="https://img.shields.io/badge/Pydantic-v2-E92063?style=for-the-badge&logo=pydantic&logoColor=white" alt="Pydantic v2" /></a>
   </p>
 </div>
 
@@ -19,19 +19,33 @@
 
 ## 📖 Overview
 
-The backend service for the **AI Surveillance System** serves as the central brain handling authentication, camera stream management, face recognition & attendance records, event alerts, multi-tenant access control, and real-time WebSockets.
+The backend service for the **AI Surveillance System** serves as the core intelligence engine. It handles:
+- **Automatic License Plate Recognition (ANPR)** and vehicle history persistence (`/api/v1/vehicles`).
+- **Groq Multimodal AI Vision** object scanning (`/api/v1/events/vision-scan`).
+- **Biometric Employee Profile Management** & face attendance tracking (`/api/v1/attendance`, `/api/v1/employees`).
+- **Multi-Tenant Data Isolation** & security incident rules (`/api/v1/tenants`, `/api/v1/sites`, `/api/v1/cameras`).
 
-Built using clean **Domain-Driven Design (DDD)** principles, it isolates data structures into Repositories, Services, Schemas, and API Routers for maximal scalability.
+Built using **Domain-Driven Design (DDD)** principles, it separates Repositories, Services, Schemas (Pydantic DTOs), and API Routers for maximal performance and scalability.
 
 ---
 
-## ⚡ Core Features
+## ⚡ Core Modules & Features
 
-- 🔐 **JWT OAuth2 Authentication**: Secure access token generation, passlib password hashing, role-based authorization.
-- 🪪 **Attendance & Employee Module**: Full CRUD operations for employees, automated & manual attendance logging, confidence scoring, and daily attendance aggregations.
-- 🏢 **Multi-Tenant Architecture**: Complete multi-organization isolation (`Tenants` ➔ `Sites` ➔ `Cameras`).
-- 🔄 **Alembic Schema Migrations**: Version-controlled database schema migrations.
-- ⚡ **Rule Triggers & Event Engine**: Event notification handling for camera motion, zone breach, and recognized face alerts.
+- 🚗 **ANPR License Plate Engine (`app/services/vehicle.py`)**:
+  - OpenCV contour bounding rect detection and Tesseract OCR text extraction.
+  - Formats Indian license plate numbers (e.g. `JH03MF4477`, `UP16BT4321`) and tags location spots (`📍 Apartment Parking`).
+  - Async SQLite database storage and bulk history clear route (`DELETE /api/v1/vehicles`).
+
+- ⚡ **Groq Multimodal AI Vision Engine (`app/api/v1/events.py`)**:
+  - Integrates Groq API (`GROQ_API_KEY`) using model `qwen/qwen3.6-27b`.
+  - Performs fast ~0.2s object detection for small handheld items (**Computer Mouse**, **Pen / Marker**, **Smartphone**, **Laptop**, **Bottle**, **Glasses**).
+  - Built-in Regex sanitizer (`re.sub(r'<think>.*?</think>', '', ...)`) strips internal LLM thinking tags to return clean 1-3 word object names.
+
+- 🪪 **Biometric Attendance & Employee Module**:
+  - Complete CRUD operations for employee biometric profiles, automated & manual attendance logging, confidence scoring, and daily aggregations.
+
+- 🏢 **Multi-Tenant Organization Hierarchy**:
+  - Complete data isolation (`Tenants` ➔ `Sites` ➔ `Cameras`).
 
 ---
 
@@ -40,23 +54,25 @@ Built using clean **Domain-Driven Design (DDD)** principles, it isolates data st
 ```text
 backend/
 ├── alembic/                         # Migration scripts & env setup
-│   └── versions/                    # Revision histories
+│   └── versions/                    # Revision history
 ├── app/                             
 │   ├── api/v1/                      # Versioned API Routers
-│   │   ├── auth.py                  # Authentication & Tokens
-│   │   ├── attendance.py            # Attendance endpoints
-│   │   ├── employees.py             # Employee management
+│   │   ├── vehicles.py              # ANPR Vehicles API (scan, list, delete)
+│   │   ├── events.py                # Security Events & Groq Vision API
+│   │   ├── auth.py                  # OAuth2 JWT Tokens
+│   │   ├── attendance.py            # Biometric Attendance endpoints
+│   │   ├── employees.py             # Employee profile management
 │   │   ├── cameras.py               # Camera stream management
-│   │   ├── events.py                # Security incident logs
 │   │   ├── rules.py                 # Security trigger rules
 │   │   ├── sites.py                 # Site location management
 │   │   └── tenants.py               # Tenant organization management
-│   ├── core/                        # System configurations, security, websockets
-│   ├── models/                      # Async SQLAlchemy ORM Models
+│   ├── core/                        # Settings, Groq API config, Security
+│   ├── models/                      # Async SQLAlchemy ORM Models (VehicleRecord, Event, etc.)
 │   ├── repositories/                # Async Database Repositories
 │   ├── schemas/                     # Pydantic Schemas (DTOs)
-│   └── services/                    # Core Business Logic Layer
-├── test_attendance.py               # Quick API integration test script
+│   └── services/                    # ANPR & Vehicle Business Logic Layer
+├── .env                             # Environment File (GROQ_API_KEY)
+├── ai_surveillance.db               # SQLite Database Instance
 └── requirements.txt                 # Backend Python dependencies
 ```
 
@@ -65,7 +81,7 @@ backend/
 ## 🚀 Setup & Execution
 
 ### 1. Environment Setup
-Create a `.env` file in the `backend/` root directory:
+Create or update `.env` in the `backend/` root directory:
 
 ```env
 APP_NAME=AI Surveillance System
@@ -74,7 +90,9 @@ DEBUG=true
 
 SERVER_HOST=0.0.0.0
 SERVER_PORT=8000
-SECRET_KEY=your_super_secret_jwt_key
+
+# Groq AI Vision Key
+GROQ_API_KEY=your_groq_api_key_here
 ```
 
 ### 2. Install Dependencies
@@ -91,21 +109,23 @@ alembic upgrade head
 
 ### 4. Start Server
 ```bash
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 ---
 
-## 🧪 Testing
+## 📡 API Reference Summary
 
-To test attendance endpoints directly:
+- `GET /api/v1/vehicles`: List vehicle records with search and filters.
+- `POST /api/v1/vehicles/scan`: Scan number plate & save to SQLite DB.
+- `DELETE /api/v1/vehicles`: Clear all vehicle records.
+- `POST /api/v1/events/vision-scan`: Run Groq AI Vision object detection.
+- `DELETE /api/v1/events/clear-all`: Clear all object detection events.
 
-```bash
-python test_attendance.py
-```
+🔥 *Interactive Swagger UI available at: `http://localhost:8000/docs`*
 
 ---
 
 <div align="center">
-  <sub>FastAPI Service • High Performance Video Analytics</sub>
+  <sub>FastAPI Service • High-Performance AI Video Analytics Engine</sub>
 </div>

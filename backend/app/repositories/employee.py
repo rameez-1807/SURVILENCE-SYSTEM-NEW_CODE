@@ -53,7 +53,7 @@ class EmployeeRepository:
             designation=obj_in.designation
         )
         self.db.add(db_obj)
-        await self.db.flush()
+        await self.db.commit()
         await self.db.refresh(db_obj)
         return db_obj
 
@@ -61,4 +61,15 @@ class EmployeeRepository:
         """Delete an employee."""
         stmt = delete(Employee).where(Employee.id == employee_id)
         result = await self.db.execute(stmt)
+        await self.db.commit()
         return result.rowcount > 0
+
+    async def remove_face_encoding(self, employee_id: str) -> Optional[Employee]:
+        """Remove face encoding for an employee while keeping the employee record in DB."""
+        emp = await self.get_by_employee_id(employee_id)
+        if not emp:
+            return None
+        emp.face_encoding = None
+        await self.db.commit()
+        await self.db.refresh(emp)
+        return emp

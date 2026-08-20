@@ -34,9 +34,31 @@ class AttendanceRepository:
             confidence=obj_in.confidence,
         )
         self.db.add(db_obj)
-        await self.db.flush()
+        await self.db.commit()
         await self.db.refresh(db_obj)
         return db_obj
+
+    async def get_by_employee_and_date(self, employee_uuid: uuid.UUID, attendance_date: DateType) -> Optional[AttendanceRecord]:
+        """Get an existing attendance record for an employee on a specific date."""
+        stmt = (
+            select(AttendanceRecord)
+            .where(
+                AttendanceRecord.employee_uuid == employee_uuid,
+                AttendanceRecord.date == attendance_date
+            )
+            .options(joinedload(AttendanceRecord.employee))
+        )
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def update_last_seen(self, record: AttendanceRecord, new_last_seen: any, confidence: float) -> AttendanceRecord:
+        """Update last_seen timestamp on existing attendance record."""
+        record.last_seen = new_last_seen
+        if confidence > record.confidence:
+            record.confidence = confidence
+        await self.db.commit()
+        await self.db.refresh(record)
+        return record
 
     async def get_by_id(self, record_id: uuid.UUID) -> Optional[AttendanceRecord]:
         """Get a single attendance record by its UUID, with employee loaded."""

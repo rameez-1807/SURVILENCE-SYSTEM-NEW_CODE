@@ -11,16 +11,19 @@ import {
   BarChart3, 
   Activity, 
   Settings,
+  History,
   X
 } from 'lucide-react';
 import { cn } from '../../utils/cn';
 
 const navItems = [
   { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
+  { name: 'Recognition Analytics', path: '/recognition-dashboard', icon: BarChart3 },
   { name: 'Cameras', path: '/cameras', icon: Cctv },
   { name: 'Live', path: '/live', icon: Radio },
   { name: 'Events', path: '/events', icon: AlertTriangle },
   { name: 'Attendance', path: '/attendance', icon: Users },
+  { name: 'Recognition History', path: '/recognition-history', icon: History },
   { name: 'Objects', path: '/objects', icon: Box },
   { name: 'Vehicles', path: '/vehicles', icon: Car },
   { name: 'Evidence', path: '/evidence', icon: Database },

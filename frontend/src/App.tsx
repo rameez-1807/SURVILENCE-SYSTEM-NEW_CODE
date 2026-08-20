@@ -8,6 +8,8 @@ import Cameras from './pages/Cameras';
 import Live from './pages/Live';
 import Events from './pages/Events';
 import Attendance from './pages/Attendance';
+import RecognitionHistory from './pages/RecognitionHistory';
+import RecognitionDashboard from './pages/RecognitionDashboard';
 import Objects from './pages/Objects';
 import Vehicles from './pages/Vehicles';
 import Evidence from './pages/Evidence';
@@ -39,10 +41,12 @@ function App() {
         }>
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard />} />
+          <Route path="recognition-dashboard" element={<RecognitionDashboard />} />
           <Route path="cameras" element={<Cameras />} />
           <Route path="live" element={<Live />} />
           <Route path="events" element={<Events />} />
           <Route path="attendance" element={<Attendance />} />
+          <Route path="recognition-history" element={<RecognitionHistory />} />
           <Route path="objects" element={<Objects />} />
           <Route path="vehicles" element={<Vehicles />} />
           <Route path="evidence" element={<Evidence />} />

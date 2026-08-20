@@ -126,7 +126,7 @@ export function ManualRegistrationModal({ isOpen, onClose, onSuccess, type }: Ma
             }
           }
         } catch (e) {
-          // ignore loop errors
+          console.warn('Manual registration frame detection warning:', e);
         }
       }, 1000);
 

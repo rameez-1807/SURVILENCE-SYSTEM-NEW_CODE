@@ -57,3 +57,21 @@ async def recognize_employee(
     """
     service = EmployeeService(db)
     return await service.recognize_face(request)
+
+
+@router.delete("/{employee_id}/face", response_model=EmployeeResponse)
+async def remove_employee_face(
+    employee_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Remove an employee's face encoding while preserving the employee profile.
+    """
+    service = EmployeeService(db)
+    employee = await service.remove_face_encoding(employee_id)
+    if not employee:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Employee with ID '{employee_id}' not found"
+        )
+    return employee

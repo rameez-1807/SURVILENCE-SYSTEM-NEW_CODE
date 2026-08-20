@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = False
 
+    # AI Face Recognition Threshold (Max Euclidean Distance)
+    FACE_RECOGNITION_THRESHOLD: float = 0.55
+    LOG_UNKNOWN_RECOGNITIONS: bool = False
+
     # Database
     DATABASE_HOST: str = "localhost"
     DATABASE_PORT: int = 5432
@@ -32,6 +36,9 @@ class Settings(BaseSettings):
     # Server
     SERVER_HOST: str = "0.0.0.0"
     SERVER_PORT: int = 8000
+
+    # Groq AI Vision Key (Loaded dynamically from backend/.env)
+    GROQ_API_KEY: str = ""
 
     # Authentication
     SECRET_KEY: str = "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7"
