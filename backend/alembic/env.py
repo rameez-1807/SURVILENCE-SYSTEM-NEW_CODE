@@ -12,7 +12,7 @@ from sqlalchemy import engine_from_config, pool
 
 from app.core.config import settings
 from app.db.base import Base
-from app.models import Tenant, Site, User, Membership, Camera, Employee, AttendanceRecord, Event, Rule  # noqa: F401
+from app.models import Tenant, Site, User, Membership, Camera, Employee, AttendanceRecord, Event, Rule, VehicleRecord, RecognitionHistory, DetectionZone  # noqa: F401
 
 # Alembic Config object
 config = context.config

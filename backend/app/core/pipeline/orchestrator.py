@@ -1,129 +1,155 @@
 """
 AI Surveillance System - Pipeline Orchestrator
 
-Background service that connects the CameraManager (FrameHub) to the AI Plugins and RulesEngine.
+Background service that connects CameraManager (FrameHub) to the real-time DetectionPipeline.
+Handles continuous capture, frame buffering, YOLO detection, ByteTrack tracking,
+temporal confirmation, debouncing, zone evaluation, and WebSocket event broadcasts.
 """
 
 import asyncio
 import logging
 import uuid
-from typing import Dict, Any
+from typing import Any, Dict, Optional
 
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import sessionmaker
 
-from app.core.camera.hub import FrameHub, ConsumerStrategy
-# from app.core.ai.yolo_plugin import YoloPlugin
 from app.core.ai.models import FrameEnvelope
-from app.core.rules.engine import RulesEngine
+from app.core.camera.hub import ConsumerStrategy, FrameHub
 from app.core.camera.manager import CameraManager
+from app.core.config import settings
+from app.services.detection.pipeline import DetectionPipeline
 
 logger = logging.getLogger(__name__)
 
 
 class PipelineOrchestrator:
-    def __init__(self, session_maker: sessionmaker):
+    """
+    Singleton coordinator for all active camera detection pipelines.
+    """
+
+    _instance = None
+
+    def __new__(cls, session_maker: sessionmaker):
+        if cls._instance is None:
+            cls._instance = super(PipelineOrchestrator, cls).__new__(cls)
+            cls._instance._init_state(session_maker)
+        return cls._instance
+
+    def _init_state(self, session_maker: sessionmaker):
         self.session_maker = session_maker
         self.hub = FrameHub()
         self.camera_manager = CameraManager()
         self.active_tasks: Dict[uuid.UUID, asyncio.Task] = {}
-        self.active_plugins: Dict[uuid.UUID, Any] = {}
+        self.active_pipelines: Dict[uuid.UUID, DetectionPipeline] = {}
         self._running = False
 
     async def start(self):
         """Starts the orchestrator background service."""
-        logger.info("Starting Pipeline Orchestrator...")
+        if not settings.DETECTION_ENABLED:
+            logger.info("Real-Time Detection Pipeline is disabled via DETECTION_ENABLED=false")
+            return
+
+        logger.info("Starting Pipeline Orchestrator with YOLOv8 & ByteTrack...")
         self._running = True
-        
-        # On startup, we fetch all active cameras from the database
-        async with self.session_maker() as db:
-            from app.models.camera import Camera
-            from sqlalchemy import select
-            result = await db.execute(select(Camera))
-            cameras = result.scalars().all()
-            
-        for camera in cameras:
-            await self._start_camera_pipeline(camera)
+
+        # Fetch all cameras from the database
+        try:
+            async with self.session_maker() as db:
+                from app.models.camera import Camera
+                from sqlalchemy import select
+                result = await db.execute(select(Camera))
+                cameras = result.scalars().all()
+
+            for camera in cameras:
+                await self.start_camera(camera)
+        except Exception as e:
+            logger.error(f"Failed to query cameras on startup: {e}")
 
     async def stop(self):
-        """Stops the orchestrator and all pipelines."""
+        """Stops the orchestrator and all active pipelines."""
         logger.info("Stopping Pipeline Orchestrator...")
         self._running = False
-        
+
         for task in self.active_tasks.values():
             task.cancel()
-            
-        # Give tasks a moment to clean up
+
         await asyncio.sleep(0.5)
         self.active_tasks.clear()
-        
-        # Stop all plugins
-        # for plugin in self.active_plugins.values():
-        #     plugin.stop()
-        self.active_plugins.clear()
+        self.active_pipelines.clear()
+        self.camera_manager.shutdown_all()
 
-    async def _start_camera_pipeline(self, camera: Any):
-        """Initializes the capture and starts the AI processing task for a camera."""
-        # 1. Start the camera capture (runs in its own thread via CameraManager)
+    async def start_camera(self, camera: Any):
+        """Starts capture and detection pipeline for a camera."""
+        if camera.id in self.active_tasks:
+            return
+
+        # 1. Start capture worker in background thread
         self.camera_manager.start_stream(camera.id, camera.stream_path, camera.stream_profile)
-        
-        # 2. Subscribe to FrameHub for this camera
+
+        # 2. Subscribe to FrameHub with LATEST strategy to prevent memory growth
         queue = self.hub.subscribe(
-            camera_id=camera.id, 
-            consumer_name="yolo-primary", 
-            strategy=ConsumerStrategy.LATEST, 
+            camera_id=camera.id,
+            consumer_name="yolo-bytetrack-pipeline",
+            strategy=ConsumerStrategy.LATEST,
             max_size=5
         )
-        
-        # 3. Initialize AI Plugin
-        # plugin = YoloPlugin(camera.id)
-        # plugin.initialize()
-        plugin = None
-        # Note: We let it lazy-load on the first frame to not block startup
-        self.active_plugins[camera.id] = plugin
-        
-        # 4. Start background processing loop for this camera
-        task = asyncio.create_task(self._process_loop(camera.id, plugin, queue))
-        self.active_tasks[camera.id] = task
-        logger.info(f"Pipeline started for camera {camera.id}")
 
-    async def _process_loop(self, camera_id: uuid.UUID, plugin: Any, queue: Any):
+        # 3. Create DetectionPipeline instance
+        pipeline = DetectionPipeline(
+            camera_id=camera.id,
+            session_maker=self.session_maker,
+            min_confidence=settings.DETECTION_MIN_CONFIDENCE,
+            confirm_frames=settings.DETECTION_CONFIRM_FRAMES,
+            cooldown_seconds=settings.DETECTION_EVENT_COOLDOWN,
+        )
+        pipeline.initialize()
+        self.active_pipelines[camera.id] = pipeline
+
+        # 4. Launch async processing loop
+        task = asyncio.create_task(self._process_loop(camera.id, pipeline, queue))
+        self.active_tasks[camera.id] = task
+        logger.info(f"Real-Time Detection Pipeline active for camera: {camera.name} ({camera.id})")
+
+    async def stop_camera(self, camera_id: uuid.UUID):
+        """Stops pipeline and capture for a specific camera."""
+        task = self.active_tasks.pop(camera_id, None)
+        if task:
+            task.cancel()
+        self.active_pipelines.pop(camera_id, None)
+        self.hub.unsubscribe(camera_id, "yolo-bytetrack-pipeline")
+        self.camera_manager.stop_stream(camera_id)
+        logger.info(f"Pipeline stopped for camera {camera_id}")
+
+    def get_pipeline(self, camera_id: uuid.UUID) -> Optional[DetectionPipeline]:
+        return self.active_pipelines.get(camera_id)
+
+    async def _process_loop(self, camera_id: uuid.UUID, pipeline: DetectionPipeline, queue: Any):
         """
-        Background loop pulling frames from the hub, processing via AI, 
-        and feeding results into the Rules Engine.
+        Continuous worker pulling latest frames from queue and running inference/tracking.
         """
-        logger.info(f"Process loop starting for {camera_id}")
+        logger.info(f"Process loop started for camera {camera_id}")
         while self._running:
             try:
-                # Use to_thread because queue.get is blocking
+                # Non-blocking get in thread to not block asyncio event loop
                 frame_data, metadata = await asyncio.to_thread(queue.get, timeout=1.0)
-                
-                if frame_data is None:
-                    # Timeout reached, continue looping
+
+                if frame_data is None or metadata is None:
                     continue
-                    
-                # We have a frame! Let's build the envelope and process it
+
                 envelope = FrameEnvelope(metadata=metadata, frame_data=frame_data)
-                
-                # Run AI Plugin (blocking call, so we push it to a thread)
-                # In a high performance system, this might go to a GPU worker pool.
-                # detections = await asyncio.to_thread(plugin.process, envelope)
-                detections = []
-                
-                if not detections:
-                    continue
-                    
-                # We have detections! Feed them to the RulesEngine
-                async with self.session_maker() as db:
-                    for detection in detections:
-                        events = await RulesEngine.evaluate(db, detection)
-                        if events:
-                            await db.commit() # Commit the new events to DB
-                            
+
+                # Process through DetectionPipeline (YOLO → Tracker → Confirmation → Rules)
+                await pipeline.process_frame(envelope)
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"Error in pipeline loop for camera {camera_id}: {e}", exc_info=True)
-                await asyncio.sleep(1) # Backoff on error
-                
-        logger.info(f"Process loop exited for {camera_id}")
+                await asyncio.sleep(0.5)
+
+        logger.info(f"Process loop exited for camera {camera_id}")
+
+
+# Global orchestrator singleton instance
+from app.db.session import async_session_factory
+pipeline_orchestrator = PipelineOrchestrator(async_session_factory)

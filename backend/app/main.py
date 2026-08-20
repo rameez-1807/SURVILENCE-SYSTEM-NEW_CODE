@@ -11,11 +11,7 @@ from fastapi import FastAPI
 
 from app.api.v1 import api_v1_router
 from app.core.config import settings
-from app.core.pipeline.orchestrator import PipelineOrchestrator
-from app.db.session import async_session_factory
-
-# Global orchestrator instance
-pipeline_orchestrator = PipelineOrchestrator(async_session_factory)
+from app.core.pipeline.orchestrator import pipeline_orchestrator
 
 
 @asynccontextmanager

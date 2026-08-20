@@ -40,6 +40,19 @@ class Settings(BaseSettings):
     # Groq AI Vision Key (Loaded dynamically from backend/.env)
     GROQ_API_KEY: str = ""
 
+    # Real-Time Detection Pipeline
+    DETECTION_ENABLED: bool = True
+    DETECTION_MODEL_PATH: str = "yolov8n.pt"
+    DETECTION_CONFIDENCE: float = 0.45
+    DETECTION_IOU: float = 0.45
+    DETECTION_IMAGE_SIZE: int = 640
+    DETECTION_DEVICE: str = "auto"  # "auto", "cpu", "cuda", "cuda:0"
+    DETECTION_FRAME_SKIP: int = 3
+    DETECTION_MIN_CONFIDENCE: float = 0.45
+    DETECTION_CONFIRM_FRAMES: int = 3
+    DETECTION_EVENT_COOLDOWN: int = 10  # seconds
+    DETECTION_CLASS_FILTER: str = ""  # comma-separated, empty = all classes
+
     # Authentication
     SECRET_KEY: str = "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7"
     ALGORITHM: str = "HS256"

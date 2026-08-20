@@ -23,6 +23,12 @@ from app.schemas.camera import (
     CameraHealthResponse,
     PreviewTokenResponse
 )
+from app.schemas.detection_zone import (
+    DetectionZoneBase,
+    DetectionZoneCreate,
+    DetectionZoneUpdate,
+    DetectionZoneResponse,
+)
 
 __all__ = [
     "HealthResponse",
@@ -45,4 +51,8 @@ __all__ = [
     "CameraListResponse",
     "CameraHealthResponse",
     "PreviewTokenResponse",
+    "DetectionZoneBase",
+    "DetectionZoneCreate",
+    "DetectionZoneUpdate",
+    "DetectionZoneResponse",
 ]

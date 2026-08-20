@@ -38,7 +38,7 @@ def test_yolo_plugin_recorded_stream_inference():
     Verifies that the model loads, processes the frame, and normalizes coordinates.
     """
     camera_id = uuid.uuid4()
-    plugin = YoloPlugin(camera_id, confidence_threshold=0.1)
+    plugin = YoloPlugin(camera_id, confidence_threshold=0.1, sample_every_n_frames=1)
     plugin.initialize()
     
     # We call load() explicitly to fetch weights if not present

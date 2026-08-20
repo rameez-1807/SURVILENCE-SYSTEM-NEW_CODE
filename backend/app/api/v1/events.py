@@ -72,7 +72,7 @@ async def create_object_detection_event(
     tenant_stmt = select(Tenant).limit(1)
     tenant = (await db.execute(tenant_stmt)).scalar_one_or_none()
     if not tenant:
-        tenant = Tenant(name="Default Surveillance Tenant", slug="default-tenant")
+        tenant = Tenant(name="Default Surveillance Tenant")
         db.add(tenant)
         await db.commit()
         await db.refresh(tenant)

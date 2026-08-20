@@ -12,10 +12,12 @@ from app.models.employee import Employee
 from app.models.attendance import AttendanceRecord
 from app.models.recognition_history import RecognitionHistory
 from app.models.vehicle import VehicleRecord
+from app.models.detection_zone import DetectionZone
 
 __all__ = [
     "Tenant", "TenantStatus", "Site", "User", "Membership", "Role", 
     "Camera", "CameraStatus", "Event", "Rule", "Employee", 
-    "AttendanceRecord", "RecognitionHistory", "VehicleRecord"
+    "AttendanceRecord", "RecognitionHistory", "VehicleRecord",
+    "DetectionZone"
 ]
 

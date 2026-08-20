@@ -18,6 +18,8 @@ from app.api.v1.employees import router as employees_router
 from app.api.v1.attendance import router as attendance_router
 from app.api.v1.recognition_history import router as recognition_history_router
 from app.api.v1.vehicles import router as vehicles_router
+from app.api.v1.detection import router as detection_router
+from app.api.v1.zones import router as zones_router
 
 api_v1_router = APIRouter(prefix="/api/v1")
 
@@ -33,4 +35,6 @@ api_v1_router.include_router(employees_router)
 api_v1_router.include_router(attendance_router)
 api_v1_router.include_router(recognition_history_router)
 api_v1_router.include_router(vehicles_router)
+api_v1_router.include_router(detection_router)
+api_v1_router.include_router(zones_router)
 

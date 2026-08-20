@@ -28,6 +28,7 @@ class Event(Base):
     
     evidence_reference = Column(String, nullable=True)
     dedupe_key = Column(String, nullable=False)
+    track_id = Column(sa.Integer, nullable=True)
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
@@ -46,6 +47,7 @@ class Event(Base):
         Index('ix_events_observed_at', 'observed_at'),
         Index('ix_events_event_type', 'event_type'),
         Index('ix_events_state', 'state'),
+        Index('ix_events_track_id', 'track_id'),
     )
 
 

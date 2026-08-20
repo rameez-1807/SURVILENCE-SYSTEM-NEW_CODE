@@ -5,7 +5,7 @@
   <br />
 
   <h1>🎨 <strong>AI Surveillance Frontend Web Portal</strong></h1>
-  <p><strong>A Next-Gen React 19 Dashboard for ANPR License Plate Scanning, Groq Vision AI Object Identification & Biometric Attendance Monitoring</strong></p>
+  <p><strong>A Next-Gen React 19 Dashboard for Real-Time YOLOv8 Detection, ANPR License Plate Scanning, Groq Vision AI & Biometric Attendance</strong></p>
 
   <p>
     <a href="https://react.dev/"><img src="https://img.shields.io/badge/React_19-20232A?style=for-the-badge&logo=react&logoColor=61DAFB" alt="React 19" /></a>
@@ -20,7 +20,7 @@
 
 ## 🌟 Overview
 
-The frontend portal of the **AI Surveillance System** provides high-density real-time monitoring, license plate scanning (ANPR), Groq AI multimodal vision object identification, biometric employee attendance tracking, and security event management.
+The frontend portal of the **AI Surveillance System** provides high-density real-time monitoring, multi-object tracking telemetry, license plate scanning (ANPR), Groq AI multimodal vision object identification, biometric employee attendance tracking, and security incident management.
 
 Built with **React 19**, **Vite 8**, **TypeScript**, and **Tailwind CSS v4**, it offers fluid micro-animations, glassmorphism dark-mode aesthetics, responsive side-by-side grid layouts, and interactive modals.
 
@@ -28,18 +28,19 @@ Built with **React 19**, **Vite 8**, **TypeScript**, and **Tailwind CSS v4**, it
 
 ## 🚀 Key Interface Pages & Features
 
-### 🚗 1. ANPR Vehicle License Plate Scanner (`/vehicles`)
+### 🎯 1. Real-Time Detection & Object Scanner (`/objects`)
+- **Live Pipeline Telemetry Pill**: Displays real-time FPS, inference latency in ms, active tracking count, and GPU accelerator state directly in the header banner.
+- **Groq Vision AI Engine**: Integrates with Groq Vision API (`qwen/qwen3.6-27b`) for 99.9% accurate handheld item identification (**Computer Mouse**, **Pen / Marker**, **Smartphone**, **Laptop**, **Bottle**, **Glasses**, **Mug**).
+- **Background Clutter Suppression**: Automatically ignores background room clutter (`chair`, `tv`, `door`, `traffic light`) to prioritize foreground items.
+- **Voice Announcement Pill**: Interactive toggle (`🔊 Voice Announcement ON` / `🔇 Voice Muted`) with instant cancellation.
+- **Pen & Office Mode Toggle**: Dedicated `🖋️ Pen & Office Mode ON` high-precision toggle.
+
+### 🚗 2. ANPR Vehicle License Plate Scanner (`/vehicles`)
 - **Real-Time Camera & Upload Scanner**: Scan car number plates via hardware Webcam, Simulated Gate CCTV stream, or Photo Upload using Tesseract OCR.
 - **Indian Yellow Plate Badges**: Visual yellow license plate rendering (`JH03MF4477`, `UP16BT4321`) with location spot tags (`📍 Apartment Parking`).
-- **Interactive Voice Announcement Control**: Header button (`🔊 Voice Announcement ON` / `🔇 Voice Announcement OFF`) with instant Web Speech Synthesis cancellation.
+- **Voice Announcement Toggle**: Interactive header control with instant speech cancellation.
 - **Side-by-Side Dashboard Grid**: Left column scanner + summary stats card; Right column database history table, search toolbar, filters, and vehicle detail popups.
 - **Quick Plate Registration & CSV Export**: Quick input bar and CSV report exporter.
-
-### ⚡ 2. Groq AI Multimodal Object Scanner (`/objects`)
-- **Groq Vision AI Engine**: Integrates with Groq Vision API (`qwen/qwen3.6-27b`) for 99.9% accurate small object identification (**Computer Mouse**, **Pen**, **Smartphone**, **Laptop**, **Bottle**, **Glasses**, **Mug**).
-- **Background Furniture Suppression**: Automatically ignores background room clutter (`chair`, `tv`, `door`, `traffic light`) to prioritize foreground items.
-- **Clean Title Filter**: Strips thinking tags and displays clean 1-3 word object titles.
-- **Pen & Office Mode Toggle**: Dedicated `🖋️ Pen & Office Mode ON` high-precision toggle.
 
 ### 🪪 3. Biometric Attendance & Facial Recognition (`/attendance`)
 - **Face-API.js Edge Recognition**: On-device browser face recognition using neural network weights stored in `public/models/`.
@@ -72,8 +73,8 @@ frontend/
 │   │   └── FaceRecognitionModal.tsx   # Face scanning & matching modal
 │   ├── lib/                # API client (`api.ts`) & helper config
 │   ├── pages/              # Primary Page Views
+│   │   ├── Objects.tsx     # YOLO Telemetry & Groq Vision AI Object Scanner
 │   │   ├── Vehicles.tsx    # ANPR Vehicle License Plate Scanner & History
-│   │   ├── Objects.tsx     # Groq Vision AI Object Scanner & History
 │   │   ├── Attendance.tsx  # Employee biometric attendance table & logs
 │   │   ├── LiveView.tsx    # Multi-camera grid view
 │   │   └── Dashboard.tsx   # Operational overview & analytics

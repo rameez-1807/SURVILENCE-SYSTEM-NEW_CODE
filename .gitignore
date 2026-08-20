@@ -33,10 +33,16 @@ backend/*.db
 .DS_Store
 Thumbs.db
 
-# Testing
-.pytest_cache/
-htmlcov/
-.coverage
+# Node / Frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.cache/
+
+# Temporary Evidence Snapshots
+backend/evidence/snapshots/*.jpg
+backend/evidence/snapshots/*.png
+!backend/evidence/snapshots/.gitkeep
 
 # Alembic
 alembic/versions/*.pyc

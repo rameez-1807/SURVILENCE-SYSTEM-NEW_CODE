@@ -16,6 +16,7 @@ class EventBase(BaseModel):
     evidence_reference: Optional[str] = None
     dedupe_key: str
     rule_id: Optional[uuid.UUID] = None
+    track_id: Optional[int] = None
 
 
 class EventCreate(EventBase):
