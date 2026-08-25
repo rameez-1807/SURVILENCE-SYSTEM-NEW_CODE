@@ -25,6 +25,8 @@ from app.services.detection.evidence import evidence_manager
 from app.services.detection.groq_verifier import groq_verifier
 from app.services.detection.metrics import metrics_collector
 
+from app.core.websockets.manager import ws_manager
+
 logger = logging.getLogger(__name__)
 
 
@@ -36,12 +38,14 @@ class DetectionPipeline:
     def __init__(
         self,
         camera_id: uuid.UUID,
+        tenant_id: uuid.UUID,
         session_maker: sessionmaker,
         min_confidence: Optional[float] = None,
         confirm_frames: Optional[int] = None,
         cooldown_seconds: Optional[int] = None,
     ):
         self.camera_id = camera_id
+        self.tenant_id = tenant_id
         self.session_maker = session_maker
 
         self.min_confidence = min_confidence if min_confidence is not None else settings.DETECTION_MIN_CONFIDENCE
@@ -94,6 +98,13 @@ class DetectionPipeline:
                 await asyncio.to_thread(self.tracker.update, [], frame_data.shape)
             self._latest_tracks = []
             metrics_collector.update_active_tracks(self.camera_id, 0)
+            
+            # Broadcast empty detections to clear bounding boxes
+            await ws_manager.broadcast_event(
+                tenant_id=self.tenant_id,
+                event_data={"camera_id": str(self.camera_id), "detections": []},
+                action="live_detections"
+            )
             return []
 
         # 3. Filter by minimum confidence
@@ -105,6 +116,28 @@ class DetectionPipeline:
         )
         self._latest_tracks = tracked_objects
         metrics_collector.update_active_tracks(self.camera_id, len(tracked_objects))
+
+        # ---> BROADCAST LIVE DETECTIONS <---
+        if tracked_objects:
+            live_payload = []
+            for t in tracked_objects:
+                live_payload.append({
+                    "class_name": t.class_name,
+                    "confidence": t.confidence,
+                    "bbox": {
+                        "x1": t.bbox[0],
+                        "y1": t.bbox[1],
+                        "x2": t.bbox[2],
+                        "y2": t.bbox[3],
+                    },
+                    "track_id": t.track_id
+                })
+            
+            await ws_manager.broadcast_event(
+                tenant_id=self.tenant_id,
+                event_data={"camera_id": str(self.camera_id), "detections": live_payload},
+                action="live_detections"
+            )
 
         # 5. Temporal Confirmation & Debounced Event Generation
         confirmed_events = []

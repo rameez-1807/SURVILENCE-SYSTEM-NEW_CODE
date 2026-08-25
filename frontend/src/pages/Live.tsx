@@ -40,12 +40,16 @@ export default function Live() {
     
     ws.onmessage = (event) => {
       try {
-        const data = JSON.parse(event.data);
-        if (data && data.camera_id && (data.event_type.includes('detected') || data.event_type.includes('object'))) {
+        const msg = JSON.parse(event.data);
+        const payload = msg.data || msg;
+        
+        if (msg.type === 'live_detections' && payload.camera_id) {
           setLatestDetections(prev => ({
             ...prev,
-            [data.camera_id]: data
+            [payload.camera_id]: payload.detections
           }));
+        } else if (payload && payload.camera_id && payload.event_type && (payload.event_type.includes('detected') || payload.event_type.includes('object'))) {
+          // Backward compatibility if needed
         }
       } catch (e) {
         // ignore parse errors
@@ -396,21 +400,22 @@ function CameraStream({ camera, onRemove, latestDetection }: { camera: any, onRe
             </div>
             
             {/* Bounding Box Overlay based on actual data if provided by backend */}
-            {latestDetection?.metadata?.bounding_box && (
+            {latestDetection && Array.isArray(latestDetection) && latestDetection.map((det, idx) => (
               <div 
-                className="absolute border-2 border-primary bg-primary/10 shadow-[0_0_10px_rgba(59,130,246,0.5)] transition-all duration-300"
+                key={det.track_id || idx}
+                className="absolute border-2 border-primary bg-primary/10 shadow-[0_0_10px_rgba(59,130,246,0.5)] transition-all duration-75"
                 style={{
-                  left: `${latestDetection.metadata.bounding_box[0] * 100}%`,
-                  top: `${latestDetection.metadata.bounding_box[1] * 100}%`,
-                  width: `${(latestDetection.metadata.bounding_box[2] - latestDetection.metadata.bounding_box[0]) * 100}%`,
-                  height: `${(latestDetection.metadata.bounding_box[3] - latestDetection.metadata.bounding_box[1]) * 100}%`
+                  left: `${det.bbox.x1 * 100}%`,
+                  top: `${det.bbox.y1 * 100}%`,
+                  width: `${(det.bbox.x2 - det.bbox.x1) * 100}%`,
+                  height: `${(det.bbox.y2 - det.bbox.y1) * 100}%`
                 }}
               >
                 <div className="absolute -top-6 left-[-2px] bg-primary text-white text-[10px] font-bold px-1.5 py-0.5 whitespace-nowrap capitalize">
-                  {latestDetection.event_type.replace('_detected', '').replace(/_/g, ' ')} {(latestDetection.confidence * 100).toFixed(0)}%
+                  {det.class_name.replace(/_/g, ' ')} {(det.confidence * 100).toFixed(0)}%
                 </div>
               </div>
-            )}
+            ))}
           </div>
         )}
       </div>

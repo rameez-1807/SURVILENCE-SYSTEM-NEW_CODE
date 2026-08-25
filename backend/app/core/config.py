@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     DETECTION_EVENT_COOLDOWN: int = 10  # seconds
     DETECTION_CLASS_FILTER: str = ""  # comma-separated, empty = all classes
 
+    # YOLO11m Webcam Detection (separate from RTSP pipeline model)
+    YOLO11M_MODEL_PATH: str = "app/models/yolo11m.pt"
+
     # Authentication
     SECRET_KEY: str = "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7"
     ALGORITHM: str = "HS256"

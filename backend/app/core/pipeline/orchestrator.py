@@ -97,6 +97,7 @@ class PipelineOrchestrator:
         # 3. Create DetectionPipeline instance
         pipeline = DetectionPipeline(
             camera_id=camera.id,
+            tenant_id=camera.tenant_id,
             session_maker=self.session_maker,
             min_confidence=settings.DETECTION_MIN_CONFIDENCE,
             confirm_frames=settings.DETECTION_CONFIRM_FRAMES,

@@ -299,24 +299,10 @@ export default function Objects() {
     }
   };
 
-  // Helper to load model on demand
+  // Helper to load model on demand (Now replaced with Backend YOLO11m)
   const loadModel = async () => {
-    if (modelRef.current) return modelRef.current;
-    
-    setModelLoading(true);
-    let loadedModel: any = null;
-
-    if ((window as any).cocoSsd) {
-      loadedModel = await (window as any).cocoSsd.load();
-    } else {
-      const cocoSsdModule = await import('@tensorflow-models/coco-ssd');
-      await import('@tensorflow/tfjs');
-      loadedModel = await cocoSsdModule.load();
-    }
-
-    modelRef.current = loadedModel;
-    setModelLoading(false);
-    return loadedModel;
+    // Model is loaded on backend, we just return a dummy
+    return true;
   };
 
   // Start Object Detection Scanner (Webcam)
@@ -362,7 +348,7 @@ export default function Objects() {
 
   // Real-time AI camera detection loop
   const detectLoop = async () => {
-    if (!videoRef.current || !canvasRef.current || !modelRef.current) return;
+    if (!videoRef.current || !canvasRef.current) return;
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -375,99 +361,121 @@ export default function Objects() {
 
       const ctx = canvas.getContext('2d');
       if (ctx) {
+        // Draw video frame to canvas to capture it
+        ctx.drawImage(video, 0, 0, width, height);
+        
+        // Get base64 image (use a slightly lower quality for speed if needed)
+        const b64Image = canvas.toDataURL('image/jpeg', 0.7);
+        
+        // Clear it so we can draw just boxes on top of video
         ctx.clearRect(0, 0, width, height);
 
-        // Run object detection model on current frame
-        const predictions = await modelRef.current.detect(video);
+        try {
+          // Send to backend YOLO11m
+          const res = await api.post('/detection/webcam-detect', {
+            image_base64: b64Image
+          });
+          
+          const predictions = res.data.detections || [];
 
-        let topDet: DetectedObject | null = null;
-        let topForegroundDet: DetectedObject | null = null;
+          let topDet: DetectedObject | null = null;
+          let topForegroundDet: DetectedObject | null = null;
 
-        predictions.forEach((pred: any) => {
-          const minScore = isPenMode ? 0.25 : 0.40;
-          if (pred.score >= minScore) {
-            const [x, y, w, h] = pred.bbox;
-            const rawClass: string = pred.class;
-            const score: number = pred.score;
+          predictions.forEach((pred: any) => {
+            const minScore = isPenMode ? 0.25 : 0.40;
+            if (pred.confidence >= minScore) {
+              const { x1, y1, x2, y2 } = pred.bbox;
+              const w = x2 - x1;
+              const h = y2 - y1;
+              const rawClass: string = pred.class_name;
+              const score: number = pred.confidence;
 
-            const { label: refinedLabel, isPen, isMouse, isFurniture } = refineObjectLabel(rawClass, pred.bbox, isPenMode);
-            const displayScore = (isPen || isMouse) ? Math.max(score, 0.92) : score;
+              const { label: refinedLabel, isPen, isMouse, isFurniture } = refineObjectLabel(rawClass, [x1, y1, w, h], isPenMode);
+              const displayScore = (isPen || isMouse) ? Math.max(score, 0.92) : score;
 
-            const detObj: DetectedObject = {
-              label: refinedLabel,
-              score: displayScore,
-              bbox: pred.bbox
-            };
+              const detObj: DetectedObject = {
+                label: refinedLabel,
+                score: displayScore,
+                bbox: [x1, y1, w, h]
+              };
 
-            const isPerson = rawClass.toLowerCase() === 'person';
+              const isPerson = rawClass.toLowerCase() === 'person';
 
-            // Prioritize foreground items (Mouse, Pen, Phone, Laptop) over background furniture & person
-            if (!isPerson && !isFurniture) {
-              if (!topForegroundDet || detObj.score > topForegroundDet.score || isMouse || isPen) {
-                topForegroundDet = detObj;
+              // Prioritize foreground items (Mouse, Pen, Phone, Laptop) over background furniture & person
+              if (!isPerson && !isFurniture) {
+                if (!topForegroundDet || detObj.score > topForegroundDet.score || isMouse || isPen) {
+                  topForegroundDet = detObj;
+                }
+              }
+
+              if (!topDet || detObj.score > topDet.score) {
+                topDet = detObj;
+              }
+
+              // Draw bounding box
+              const isHighlightItem = isPen || isMouse || refinedLabel.includes('Pen') || refinedLabel.includes('Mouse');
+              ctx.strokeStyle = isHighlightItem ? '#06b6d4' : (isFurniture ? '#64748b' : '#10B981');
+              ctx.lineWidth = isHighlightItem ? 4 : 3;
+              ctx.strokeRect(x1, y1, w, h);
+
+              // Bounding box corner accents
+              const cornerLen = 14;
+              ctx.strokeStyle = isHighlightItem ? '#22d3ee' : (isFurniture ? '#94a3b8' : '#34D399');
+              ctx.lineWidth = 4;
+              // Top-left
+              ctx.beginPath(); ctx.moveTo(x1, y1 + cornerLen); ctx.lineTo(x1, y1); ctx.lineTo(x1 + cornerLen, y1); ctx.stroke();
+              // Top-right
+              ctx.beginPath(); ctx.moveTo(x1 + w - cornerLen, y1); ctx.lineTo(x1 + w, y1); ctx.lineTo(x1 + w, y1 + cornerLen); ctx.stroke();
+              // Bottom-left
+              ctx.beginPath(); ctx.moveTo(x1, y1 + h - cornerLen); ctx.lineTo(x1, y1 + h); ctx.lineTo(x1 + cornerLen, y1 + h); ctx.stroke();
+              // Bottom-right
+              ctx.beginPath(); ctx.moveTo(x1 + w - cornerLen, y1 + h); ctx.lineTo(x1 + w, y1 + h); ctx.lineTo(x1 + w, y1 + h - cornerLen); ctx.stroke();
+
+              // Draw label background
+              ctx.fillStyle = isHighlightItem ? '#0891b2' : (isFurniture ? '#334155' : '#10B981');
+              const text = `${refinedLabel.toUpperCase()} ${Math.round(displayScore * 100)}%`;
+              ctx.font = 'bold 13px sans-serif';
+              const textWidth = ctx.measureText(text).width;
+              ctx.fillRect(x1, y1 > 26 ? y1 - 26 : y1, textWidth + 14, 26);
+
+              // Draw label text
+              ctx.fillStyle = '#ffffff';
+              ctx.fillText(text, x1 + 7, y1 > 26 ? y1 - 8 : y1 + 17);
+            }
+          });
+
+          // PRIORITIZE FOREGROUND OBJECT (MOUSE / PEN / PHONE / BOTTLE / ETC.) OVER BACKGROUND CHAIR / TV / PERSON!
+          const selectedDet = topForegroundDet || topDet;
+
+          if (selectedDet) {
+            const currentDet: DetectedObject = selectedDet;
+            setCurrentDetection(currentDet);
+
+            // Voice announcement
+            announceObjectName(currentDet.label, currentDet.score);
+
+            // Auto-save logic with 4s cooldown per object label
+            if (autoSave) {
+              const now = Date.now();
+              const lastSaved = lastSavedTimeRef.current[currentDet.label] || 0;
+              if (now - lastSaved > 4000) {
+                lastSavedTimeRef.current[currentDet.label] = now;
+                saveObjectDetection(currentDet.label, currentDet.score, 'Live Camera Scanner');
               }
             }
-
-            if (!topDet || detObj.score > topDet.score) {
-              topDet = detObj;
-            }
-
-            // Draw bounding box
-            const isHighlightItem = isPen || isMouse || refinedLabel.includes('Pen') || refinedLabel.includes('Mouse');
-            ctx.strokeStyle = isHighlightItem ? '#06b6d4' : (isFurniture ? '#64748b' : '#10B981');
-            ctx.lineWidth = isHighlightItem ? 4 : 3;
-            ctx.strokeRect(x, y, w, h);
-
-            // Bounding box corner accents
-            const cornerLen = 14;
-            ctx.strokeStyle = isHighlightItem ? '#22d3ee' : (isFurniture ? '#94a3b8' : '#34D399');
-            ctx.lineWidth = 4;
-            // Top-left
-            ctx.beginPath(); ctx.moveTo(x, y + cornerLen); ctx.lineTo(x, y); ctx.lineTo(x + cornerLen, y); ctx.stroke();
-            // Top-right
-            ctx.beginPath(); ctx.moveTo(x + w - cornerLen, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + cornerLen); ctx.stroke();
-            // Bottom-left
-            ctx.beginPath(); ctx.moveTo(x, y + h - cornerLen); ctx.lineTo(x, y + h); ctx.lineTo(x + cornerLen, y + h); ctx.stroke();
-            // Bottom-right
-            ctx.beginPath(); ctx.moveTo(x + w - cornerLen, y + h); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w, y + h - cornerLen); ctx.stroke();
-
-            // Draw label background
-            ctx.fillStyle = isHighlightItem ? '#0891b2' : (isFurniture ? '#334155' : '#10B981');
-            const text = `${refinedLabel.toUpperCase()} ${Math.round(displayScore * 100)}%`;
-            ctx.font = 'bold 13px sans-serif';
-            const textWidth = ctx.measureText(text).width;
-            ctx.fillRect(x, y > 26 ? y - 26 : y, textWidth + 14, 26);
-
-            // Draw label text
-            ctx.fillStyle = '#ffffff';
-            ctx.fillText(text, x + 7, y > 26 ? y - 8 : y + 17);
+          } else {
+             setCurrentDetection(null);
           }
-        });
-
-        // PRIORITIZE FOREGROUND OBJECT (MOUSE / PEN / PHONE / BOTTLE / ETC.) OVER BACKGROUND CHAIR / TV / PERSON!
-        const selectedDet = topForegroundDet || topDet;
-
-        if (selectedDet) {
-          const currentDet: DetectedObject = selectedDet;
-          setCurrentDetection(currentDet);
-
-          // Voice announcement
-          announceObjectName(currentDet.label, currentDet.score);
-
-          // Auto-save logic with 4s cooldown per object label
-          if (autoSave) {
-            const now = Date.now();
-            const lastSaved = lastSavedTimeRef.current[currentDet.label] || 0;
-            if (now - lastSaved > 4000) {
-              lastSavedTimeRef.current[currentDet.label] = now;
-              saveObjectDetection(currentDet.label, currentDet.score, 'Live Camera Scanner');
-            }
-          }
+        } catch (e) {
+           console.error("YOLO11m API error", e);
         }
       }
     }
 
-    animFrameId.current = requestAnimationFrame(detectLoop);
+    // Rate limit to roughly 10-15 FPS to not overwhelm backend
+    setTimeout(() => {
+      animFrameId.current = requestAnimationFrame(detectLoop);
+    }, 80);
   };
 
   // Analyze uploaded image
@@ -482,8 +490,6 @@ export default function Objects() {
       const imageUrl = URL.createObjectURL(file);
       setUploadedImage(imageUrl);
 
-      const loadedModel = await loadModel();
-
       // Create dummy image element to run detector
       const img = new Image();
       img.src = imageUrl;
@@ -496,49 +502,63 @@ export default function Objects() {
         const ctx = canvas.getContext('2d');
         if (ctx) {
           ctx.drawImage(img, 0, 0);
-          const predictions = await loadedModel.detect(img);
+          
+          const b64Image = canvas.toDataURL('image/jpeg', 0.9);
 
-          const detectedList: DetectedObject[] = [];
+          try {
+            const res = await api.post('/detection/webcam-detect', {
+              image_base64: b64Image
+            });
+            const predictions = res.data.detections || [];
 
-          predictions.forEach((pred: any) => {
-            const minScore = isPenMode ? 0.25 : 0.40;
-            if (pred.score >= minScore) {
-              const [x, y, w, h] = pred.bbox;
-              const rawClass: string = pred.class;
-              const score: number = pred.score;
+            const detectedList: DetectedObject[] = [];
 
-              const { label: refinedLabel, isPen } = refineObjectLabel(rawClass, pred.bbox, isPenMode);
-              const displayScore = isPen ? Math.max(score, 0.88) : score;
+            predictions.forEach((pred: any) => {
+              const minScore = isPenMode ? 0.25 : 0.40;
+              if (pred.confidence >= minScore) {
+                const { x1, y1, x2, y2 } = pred.bbox;
+                const w = x2 - x1;
+                const h = y2 - y1;
+                const rawClass: string = pred.class_name;
+                const score: number = pred.confidence;
 
-              detectedList.push({ label: refinedLabel, score: displayScore, bbox: pred.bbox });
+                const { label: refinedLabel, isPen } = refineObjectLabel(rawClass, [x1, y1, w, h], isPenMode);
+                const displayScore = isPen ? Math.max(score, 0.88) : score;
 
-              // Draw box
-              const isPenItem = isPen || refinedLabel.includes('Pen');
-              ctx.strokeStyle = isPenItem ? '#06b6d4' : '#10B981';
-              ctx.lineWidth = 4;
-              ctx.strokeRect(x, y, w, h);
+                detectedList.push({ label: refinedLabel, score: displayScore, bbox: [x1, y1, w, h] });
 
-              ctx.fillStyle = isPenItem ? '#0891b2' : '#10B981';
-              const text = `${refinedLabel.toUpperCase()} ${Math.round(displayScore * 100)}%`;
-              ctx.font = 'bold 14px sans-serif';
-              const textWidth = ctx.measureText(text).width;
-              ctx.fillRect(x, y > 26 ? y - 26 : y, textWidth + 14, 26);
+                // Draw box
+                const isPenItem = isPen || refinedLabel.includes('Pen');
+                ctx.strokeStyle = isPenItem ? '#06b6d4' : '#10B981';
+                ctx.lineWidth = 4;
+                ctx.strokeRect(x1, y1, w, h);
 
-              ctx.fillStyle = '#ffffff';
-              ctx.fillText(text, x + 7, y > 26 ? y - 8 : y + 18);
+                ctx.fillStyle = isPenItem ? '#0891b2' : '#10B981';
+                const text = `${refinedLabel.toUpperCase()} ${Math.round(displayScore * 100)}%`;
+                ctx.font = 'bold 14px sans-serif';
+                const textWidth = ctx.measureText(text).width;
+                ctx.fillRect(x1, y1 > 26 ? y1 - 26 : y1, textWidth + 14, 26);
+
+                ctx.fillStyle = '#ffffff';
+                ctx.fillText(text, x1 + 7, y1 > 26 ? y1 - 8 : y1 + 18);
+              }
+            });
+
+            setUploadDetections(detectedList);
+            setIsAnalyzingImage(false);
+
+            if (detectedList.length > 0) {
+              const top = detectedList[0];
+              announceObjectName(top.label, top.score);
+
+              if (autoSave) {
+                saveObjectDetection(top.label, top.score, `Uploaded Image (${file.name})`);
+              }
             }
-          });
-
-          setUploadDetections(detectedList);
-          setIsAnalyzingImage(false);
-
-          if (detectedList.length > 0) {
-            const top = detectedList[0];
-            announceObjectName(top.label, top.score);
-
-            if (autoSave) {
-              saveObjectDetection(top.label, top.score, `Uploaded Image (${file.name})`);
-            }
+          } catch (apiErr) {
+            console.error("YOLO11m API error", apiErr);
+            setIsAnalyzingImage(false);
+            setError('Error contacting detection API.');
           }
         }
       };

@@ -5,8 +5,13 @@ Provides real-time pipeline telemetry, active tracks, and detection queries.
 """
 
 import uuid
+import base64
+import asyncio
 from typing import Any, Dict, List, Optional
 
+import numpy as np
+import cv2
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,8 +19,12 @@ from app.api.deps import get_db
 from app.core.config import settings
 from app.core.pipeline.orchestrator import pipeline_orchestrator
 from app.services.detection.metrics import metrics_collector
+from app.core.ai.yolo11m_singleton import detect_frame
 
 router = APIRouter(prefix="/detection", tags=["Detection Pipeline"])
+
+class WebcamDetectRequest(BaseModel):
+    image_base64: str
 
 
 @router.get("/status", response_model=Dict[str, Any])
@@ -77,3 +86,26 @@ async def get_camera_latest_detections(camera_id: uuid.UUID) -> List[Dict[str, A
 
     dets = pipeline.get_latest_detections()
     return [d.model_dump(mode="json") for d in dets]
+
+
+@router.post("/webcam-detect", response_model=Dict[str, Any])
+async def detect_from_webcam(req: WebcamDetectRequest) -> Dict[str, Any]:
+    """
+    Receive a base64 encoded image frame from the browser webcam
+    and run YOLO11m detection using the backend singleton.
+    """
+    try:
+        # Extract base64 part
+        encoded_data = req.image_base64.split(',')[1] if ',' in req.image_base64 else req.image_base64
+        nparr = np.frombuffer(base64.b64decode(encoded_data), np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if frame is None:
+            raise HTTPException(status_code=400, detail="Invalid image data")
+            
+        # Run YOLO11m singleton inference in a background thread
+        results = await asyncio.to_thread(detect_frame, frame)
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
