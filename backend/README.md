@@ -4,15 +4,15 @@
   <br />
 
   <h1>🧠 <strong>AI Surveillance Backend Service</strong></h1>
-  <p><strong>FastAPI-Powered Real-Time YOLOv8 & ByteTrack Video Analytics, ANPR Engine, Groq AI Multimodal Vision & WebSocket Event Delivery</strong></p>
+  <p><strong>FastAPI-Powered Real-Time YOLOv8 & ByteTrack Video Analytics, ANPR Engine, Groq AI Multimodal Vision, Human Review Queue & WebSocket Event Delivery</strong></p>
 
   <p>
+    <a href="https://github.com/rameez-1807/SURVILENCE-SYSTEM-NEW_CODE.git"><img src="https://img.shields.io/badge/GitHub-SURVILENCE--SYSTEM--NEW__CODE-181717?style=for-the-badge&logo=github&logoColor=white" alt="GitHub Repo" /></a>
     <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.115+-005571?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI" /></a>
     <a href="https://ultralytics.com/"><img src="https://img.shields.io/badge/YOLOv8-Ultralytics-00599C?style=for-the-badge&logo=yolo&logoColor=white" alt="YOLOv8" /></a>
     <a href="https://groq.com/"><img src="https://img.shields.io/badge/Groq_Vision_AI-f55036?style=for-the-badge&logo=groq&logoColor=white" alt="Groq Vision AI" /></a>
     <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.12" /></a>
     <a href="https://www.sqlalchemy.org/"><img src="https://img.shields.io/badge/SQLAlchemy-2.0+-D71F00?style=for-the-badge&logo=sqlalchemy&logoColor=white" alt="SQLAlchemy 2.0" /></a>
-    <a href="https://alembic.sqlalchemy.org/"><img src="https://img.shields.io/badge/Alembic-Migrations-6B1724?style=for-the-badge" alt="Alembic" /></a>
   </p>
 </div>
 
@@ -25,10 +25,11 @@ The backend service for the **AI Surveillance System** serves as the core intell
 - **Camera Regions of Interest (ROI) & Security Zones** (`/api/v1/zones`).
 - **Automatic License Plate Recognition (ANPR)** and vehicle history persistence (`/api/v1/vehicles`).
 - **Groq Multimodal AI Vision** secondary verification (`/api/v1/events/vision-scan`).
+- **Human-in-the-Loop Review Queue** & label correction (`/api/v1/events/review-queue`).
 - **Biometric Employee Profile Management** & face attendance tracking (`/api/v1/attendance`, `/api/v1/employees`).
 - **Multi-Tenant Data Isolation** & security incident rules (`/api/v1/tenants`, `/api/v1/sites`, `/api/v1/cameras`).
 
-Built using **Domain-Driven Design (DDD)** principles, it separates Repositories, Services, Schemas (Pydantic DTOs), and API Routers for maximal performance and scalability.
+Built using **Domain-Driven Design (DDD)** principles and asynchronous I/O, it separates Repositories, Services, Schemas (Pydantic DTOs), and API Routers for maximal performance and horizontal scalability.
 
 ---
 
@@ -49,12 +50,16 @@ Built using **Domain-Driven Design (DDD)** principles, it separates Repositories
 - 🚗 **ANPR License Plate Engine (`app/services/vehicle.py`)**:
   - OpenCV contour bounding rect detection and Tesseract OCR text extraction.
   - Formats Indian license plate numbers (e.g. `JH03MF4477`, `UP16BT4321`) and tags location spots (`📍 Apartment Parking`).
-  - Async SQLite database storage and bulk history clear route (`DELETE /api/v1/vehicles`).
+  - Async database storage and bulk history clear route (`DELETE /api/v1/vehicles`).
 
 - ⚡ **Groq Multimodal AI Vision Engine (`app/api/v1/events.py`, `app/services/detection/groq_verifier.py`)**:
   - Integrates Groq API (`GROQ_API_KEY`) using model `qwen/qwen3.6-27b`.
   - Performs secondary semantic verification on confirmed security events without blocking live streams.
   - Built-in Regex sanitizer (`re.sub(r'<think>.*?</think>', '', ...)`) strips internal LLM thinking tags to return clean 1-3 word object names.
+
+- 📝 **Human-in-the-Loop Review Queue (`app/api/v1/events.py`)**:
+  - `/events/review-queue`: Fetches security incidents flagged for human review.
+  - `/events/{event_id}/correct-label`: PATCH endpoint for updating object classification labels in real time.
 
 - 🪪 **Biometric Attendance & Employee Module**:
   - Complete CRUD operations for employee biometric profiles, automated & manual attendance logging, confidence scoring, and daily aggregations.
@@ -75,7 +80,7 @@ backend/
 │   │   ├── detection.py             # Real-time pipeline status, tracks & telemetry
 │   │   ├── zones.py                 # ROI detection zones CRUD
 │   │   ├── vehicles.py              # ANPR Vehicles API (scan, list, delete)
-│   │   ├── events.py                # Security Events & Groq Vision API
+│   │   ├── events.py                # Security Events, Groq Vision & Review Queue API
 │   │   ├── auth.py                  # OAuth2 JWT Tokens
 │   │   ├── attendance.py            # Biometric Attendance endpoints
 │   │   ├── employees.py             # Employee profile management
@@ -90,8 +95,8 @@ backend/
 │   └── services/                    
 │       ├── detection/               # Pipeline, Metrics, Evidence, Groq Verifier
 │       └── vehicle.py               # ANPR & Vehicle Business Logic Layer
-├── .env                             # Environment File (DETECTION_*, GROQ_API_KEY)
-├── ai_surveillance.db               # SQLite Database Instance
+├── .env                             # Environment File (DATABASE_URL, GROQ_API_KEY)
+├── ai_surveillance.db               # SQLite / PostgreSQL Database Instance
 └── requirements.txt                 # Backend Python dependencies
 ```
 
@@ -99,29 +104,19 @@ backend/
 
 ## 🚀 Getting Started
 
-### 1. Configure Environment
-```env
-APP_NAME=AI Surveillance System
-GROQ_API_KEY=your_groq_api_key_here
-
-# Real-Time Detection Pipeline
-DETECTION_ENABLED=true
-DETECTION_MODEL_PATH=yolov8n.pt
-DETECTION_CONFIDENCE=0.45
-DETECTION_IOU=0.45
-DETECTION_DEVICE=auto
-DETECTION_FRAME_SKIP=3
-DETECTION_CONFIRM_FRAMES=3
-DETECTION_EVENT_COOLDOWN=10
-```
-
-### 2. Run Database Migrations
 ```bash
+# Activate virtual environment
+# Windows (PowerShell):
+..\venv\Scripts\Activate.ps1
+# Linux / macOS:
+source ../venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run migrations
 alembic upgrade head
-```
 
-### 3. Start Backend Server
-```bash
+# Start development server
 uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
-API Documentation is available at `http://127.0.0.1:8000/docs`.

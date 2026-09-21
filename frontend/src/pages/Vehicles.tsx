@@ -471,7 +471,7 @@ export default function Vehicles() {
         type: 'error',
         text: 'Failed to process license plate from image.'
       });
-    } fontally: {
+    } finally {
       setIsScanning(false);
     }
   };

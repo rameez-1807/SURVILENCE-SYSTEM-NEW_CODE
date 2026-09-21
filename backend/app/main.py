@@ -21,6 +21,10 @@ async def lifespan(app: FastAPI):
     # Startup
     print(f"[START] Starting {settings.APP_NAME} v{settings.APP_VERSION}")
     
+    import logging
+    if not settings.GROQ_API_KEY:
+        logging.warning("GROQ_API_KEY not set — open-set object naming (/events/vision-scan) will be disabled.")
+    
     import asyncio
     asyncio.create_task(pipeline_orchestrator.start())
     

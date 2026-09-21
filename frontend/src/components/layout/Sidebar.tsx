@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -12,8 +13,10 @@ import {
   Activity, 
   Settings,
   History,
-  X
+  X,
+  ShieldAlert
 } from 'lucide-react';
+import { api } from '../../lib/api';
 import { cn } from '../../utils/cn';
 
 const navItems = [
@@ -25,6 +28,7 @@ const navItems = [
   { name: 'Attendance', path: '/attendance', icon: Users },
   { name: 'Recognition History', path: '/recognition-history', icon: History },
   { name: 'Objects', path: '/objects', icon: Box },
+  { name: 'Review Queue', path: '/review-queue', icon: ShieldAlert },
   { name: 'Vehicles', path: '/vehicles', icon: Car },
   { name: 'Evidence', path: '/evidence', icon: Database },
   { name: 'Analytics', path: '/analytics', icon: BarChart3 },
@@ -33,6 +37,22 @@ const navItems = [
 ];
 
 export function Sidebar({ isOpen, setIsOpen }: { isOpen: boolean, setIsOpen: (val: boolean) => void }) {
+  const [reviewCount, setReviewCount] = useState(0);
+
+  useEffect(() => {
+    const fetchQueue = async () => {
+      try {
+        const res = await api.get('/events/review-queue?limit=100');
+        if (res.data) setReviewCount(res.data.length);
+      } catch (e) {
+        // Silently fail for polling
+      }
+    };
+    fetchQueue();
+    const interval = setInterval(fetchQueue, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <aside 
       className={cn(
@@ -76,7 +96,12 @@ export function Sidebar({ isOpen, setIsOpen }: { isOpen: boolean, setIsOpen: (va
                     <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary rounded-r-full" />
                   )}
                   <Icon className={cn("w-5 h-5 transition-transform duration-200", isActive ? "scale-110" : "group-hover:scale-110")} />
-                  {item.name}
+                  <span className="flex-1">{item.name}</span>
+                  {item.name === 'Review Queue' && reviewCount > 0 && (
+                    <span className="bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                      {reviewCount}
+                    </span>
+                  )}
                 </>
               )}
             </NavLink>

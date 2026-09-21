@@ -11,6 +11,7 @@ import Attendance from './pages/Attendance';
 import RecognitionHistory from './pages/RecognitionHistory';
 import RecognitionDashboard from './pages/RecognitionDashboard';
 import Objects from './pages/Objects';
+import ReviewQueue from './pages/ReviewQueue';
 import Vehicles from './pages/Vehicles';
 import Evidence from './pages/Evidence';
 import Analytics from './pages/Analytics';
@@ -48,6 +49,7 @@ function App() {
           <Route path="attendance" element={<Attendance />} />
           <Route path="recognition-history" element={<RecognitionHistory />} />
           <Route path="objects" element={<Objects />} />
+          <Route path="review-queue" element={<ReviewQueue />} />
           <Route path="vehicles" element={<Vehicles />} />
           <Route path="evidence" element={<Evidence />} />
           <Route path="analytics" element={<Analytics />} />

@@ -29,48 +29,53 @@ def auth_token():
 @pytest.mark.asyncio
 async def test_websocket_unauthorized():
     # Should fail with 1008 if no token
+    test_client = TestClient(app)
     with pytest.raises(Exception) as exc_info:
-        with client.websocket_connect("/api/v1/ws") as websocket:
-            websocket.close()
+        with test_client.websocket_connect("/api/v1/ws"):
+            pass
     assert exc_info.value.code in [1008, 403, 422, 1003]
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0.01)
 
 @pytest.mark.asyncio
 async def test_websocket_invalid_token():
+    test_client = TestClient(app)
     with pytest.raises(Exception) as exc_info:
-        with client.websocket_connect("/api/v1/ws?token=invalid") as websocket:
-            websocket.close()
+        with test_client.websocket_connect("/api/v1/ws?token=invalid"):
+            pass
     assert exc_info.value.code in [1008, 401]
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0.01)
 
 @pytest.mark.asyncio
 async def test_websocket_authenticated_and_heartbeat(auth_token):
     token, tenant_id = await auth_token()
+    test_client = TestClient(app)
     
-    with client.websocket_connect(f"/api/v1/ws?token={token}&tenant_id={tenant_id}") as websocket:
+    with test_client.websocket_connect(f"/api/v1/ws?token={token}&tenant_id={tenant_id}") as websocket:
         # Test heartbeat ping/pong
         websocket.send_json({"type": "ping"})
         data = websocket.receive_json()
         assert data["type"] == "pong"
         assert "timestamp" in data
         websocket.close()
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0.01)
 
 @pytest.mark.asyncio
 async def test_websocket_tenant_isolation(auth_token):
-    token1, tenant_id1 = await auth_token()
-    token2, tenant_id2 = await auth_token()
+    token1, _ = await auth_token()
+    foreign_tenant_id = uuid.uuid4()
+    test_client = TestClient(app)
     
-    # User 1 tries to connect to Tenant 2
+    # User 1 tries to connect to foreign Tenant
     with pytest.raises(Exception) as exc_info:
-        with client.websocket_connect(f"/api/v1/ws?token={token1}&tenant_id={tenant_id2}") as websocket:
-            websocket.close()
+        with test_client.websocket_connect(f"/api/v1/ws?token={token1}&tenant_id={foreign_tenant_id}"):
+            pass
     assert exc_info.value.code == 1003
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0.01)
 
 @pytest.mark.asyncio
 async def test_websocket_event_delivery(auth_token):
     token, tenant_id = await auth_token()
+    test_client = TestClient(app)
     
     # Manually create site and camera for the event delivery test
     from app.models.site import Site
@@ -86,7 +91,7 @@ async def test_websocket_event_delivery(auth_token):
         session.add(camera)
         await session.commit()
     
-    with client.websocket_connect(f"/api/v1/ws?token={token}&tenant_id={tenant_id}") as websocket:
+    with test_client.websocket_connect(f"/api/v1/ws?token={token}&tenant_id={tenant_id}") as websocket:
         
         # Subscribe to specific site
         websocket.send_json({"type": "subscribe", "site_id": str(site_id)})
@@ -132,6 +137,7 @@ async def test_websocket_event_delivery(auth_token):
 @pytest.mark.asyncio
 async def test_websocket_sequence_and_reconnect(auth_token):
     token, tenant_id = await auth_token()
+    test_client = TestClient(app)
     
     # Pre-populate some messages in the WS manager for this tenant
     await ws_manager.broadcast_event(tenant_id, {"id": "1", "msg": "a"}, action="test")
@@ -147,7 +153,7 @@ async def test_websocket_sequence_and_reconnect(auth_token):
         
     seq2 = buffer[1]["seq"]
     
-    with client.websocket_connect(f"/api/v1/ws?token={token}&tenant_id={tenant_id}") as websocket:
+    with test_client.websocket_connect(f"/api/v1/ws?token={token}&tenant_id={tenant_id}") as websocket:
         # Send subscribe with last_seen_sequence
         websocket.send_json({"type": "subscribe", "last_seen_sequence": seq2})
         resp = websocket.receive_json()

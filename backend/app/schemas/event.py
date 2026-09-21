@@ -11,6 +11,9 @@ class EventBase(BaseModel):
     state: str = "OPEN"
     observed_at: datetime
     confidence: float
+    needs_review: bool = False
+    is_llm_verified: bool = False
+    corrected_label: Optional[str] = None
     model_id: str
     model_version: str
     evidence_reference: Optional[str] = None
@@ -27,8 +30,11 @@ class EventCreate(EventBase):
 
 class EventUpdate(BaseModel):
     state: Optional[str] = None
-    severity: Optional[str] = None
     evidence_reference: Optional[str] = None
+
+
+class CorrectLabelRequest(BaseModel):
+    corrected_label: str
 
 
 class EventResponse(EventBase):

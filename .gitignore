@@ -21,7 +21,10 @@ frontend/.env
 
 # SQLite Database
 *.db
+*.db.bak
+*.bak
 backend/*.db
+backend/*.db.bak
 
 # IDE
 .vscode/

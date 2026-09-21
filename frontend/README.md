@@ -5,14 +5,14 @@
   <br />
 
   <h1>🎨 <strong>AI Surveillance Frontend Web Portal</strong></h1>
-  <p><strong>A Next-Gen React 19 Dashboard for Real-Time YOLOv8 Detection, ANPR License Plate Scanning, Groq Vision AI & Biometric Attendance</strong></p>
+  <p><strong>A Next-Gen React 19 Dashboard for Real-Time YOLOv8 Detection, ANPR License Plate Scanning, Groq Vision AI, Review Queue & Biometric Attendance</strong></p>
 
   <p>
+    <a href="https://github.com/rameez-1807/SURVILENCE-SYSTEM-NEW_CODE.git"><img src="https://img.shields.io/badge/GitHub-SURVILENCE--SYSTEM--NEW__CODE-181717?style=for-the-badge&logo=github&logoColor=white" alt="GitHub Repo" /></a>
     <a href="https://react.dev/"><img src="https://img.shields.io/badge/React_19-20232A?style=for-the-badge&logo=react&logoColor=61DAFB" alt="React 19" /></a>
     <a href="https://vitejs.dev/"><img src="https://img.shields.io/badge/Vite_8-B73BFE?style=for-the-badge&logo=vite&logoColor=FFD62E" alt="Vite 8" /></a>
     <a href="https://tailwindcss.com/"><img src="https://img.shields.io/badge/Tailwind_CSS_v4-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white" alt="Tailwind CSS 4" /></a>
     <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-5.0+-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" /></a>
-    <a href="https://recharts.org/"><img src="https://img.shields.io/badge/Recharts-3.0+-22B5BF?style=for-the-badge" alt="Recharts" /></a>
   </p>
 </div>
 
@@ -20,7 +20,7 @@
 
 ## 🌟 Overview
 
-The frontend portal of the **AI Surveillance System** provides high-density real-time monitoring, multi-object tracking telemetry, license plate scanning (ANPR), Groq AI multimodal vision object identification, biometric employee attendance tracking, and security incident management.
+The frontend portal of the **AI Surveillance System** provides high-density real-time monitoring, multi-object tracking telemetry, license plate scanning (ANPR), Groq AI multimodal vision object identification, human-in-the-loop event correction, biometric employee attendance tracking, and security incident management.
 
 Built with **React 19**, **Vite 8**, **TypeScript**, and **Tailwind CSS v4**, it offers fluid micro-animations, glassmorphism dark-mode aesthetics, responsive side-by-side grid layouts, and interactive modals.
 
@@ -42,11 +42,14 @@ Built with **React 19**, **Vite 8**, **TypeScript**, and **Tailwind CSS v4**, it
 - **Side-by-Side Dashboard Grid**: Left column scanner + summary stats card; Right column database history table, search toolbar, filters, and vehicle detail popups.
 - **Quick Plate Registration & CSV Export**: Quick input bar and CSV report exporter.
 
-### 🪪 3. Biometric Attendance & Facial Recognition (`/attendance`)
+### 📝 3. Human Review Queue & Label Correction (`/review-queue`)
+- **Interactive Verification**: Security operators can review unverified object events, audit evidence snapshots, and correct object labels with instant database persistence.
+
+### 🪪 4. Biometric Attendance & Facial Recognition (`/attendance`)
 - **Face-API.js Edge Recognition**: On-device browser face recognition using neural network weights stored in `public/models/`.
 - **Employee Registration & Logs**: Manual registration modal, live attendance table, check-in/out timestamps, and confidence ratings.
 
-### 📊 4. Recognition Analytics & History (`/recognition-analytics`, `/recognition-history`)
+### 📊 5. Recognition Analytics & History (`/recognition-analytics`, `/recognition-history`)
 - Real-time charts powered by `Recharts` for attendance metrics, daily footfall, and security incident trends.
 
 ---
@@ -75,6 +78,7 @@ frontend/
 │   ├── pages/              # Primary Page Views
 │   │   ├── Objects.tsx     # YOLO Telemetry & Groq Vision AI Object Scanner
 │   │   ├── Vehicles.tsx    # ANPR Vehicle License Plate Scanner & History
+│   │   ├── ReviewQueue.tsx # Human review queue & label correction UI
 │   │   ├── Attendance.tsx  # Employee biometric attendance table & logs
 │   │   ├── LiveView.tsx    # Multi-camera grid view
 │   │   └── Dashboard.tsx   # Operational overview & analytics
@@ -97,11 +101,4 @@ npm install
 npm run dev
 ```
 
-Access the frontend dashboard in your browser:  
-👉 **[http://localhost:5173](http://localhost:5173)**
-
----
-
-<div align="center">
-  <sub>Designed with precision • Built for high performance</sub>
-</div>
+Access the frontend dashboard in your browser at `http://localhost:5173`.

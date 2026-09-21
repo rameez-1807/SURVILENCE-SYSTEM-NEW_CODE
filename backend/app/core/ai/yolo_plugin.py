@@ -124,7 +124,7 @@ class YoloPlugin(AIPlugin):
         status["avg_inference_latency_ms"] = round(avg_latency, 2)
         status["last_inference_ms"] = round(self._last_inference_ms, 2)
         status["frames_processed"] = self._frames_processed
-        status["device"] = self.resolved_device
+        status["device"] = settings.DETECTION_DEVICE
         status["model_path"] = self.model_path
         status["class_filter"] = list(self.class_filter) if self.class_filter else "all"
         return status

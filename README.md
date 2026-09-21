@@ -6,18 +6,18 @@
 
   <h1>🛡️ <strong>AI SURVEILLANCE & REAL-TIME INTELLIGENCE SYSTEM</strong></h1>
   <p>
-    <strong>Enterprise-Grade Real-Time Video Analytics, YOLOv8 Object Detection, ByteTrack Tracking, ANPR Vehicle Scanner, Groq Multimodal Vision AI & Biometric Attendance Platform</strong>
+    <strong>Enterprise-Grade Real-Time Video Analytics, YOLOv8 Object Detection, ByteTrack Tracking, ANPR Vehicle Scanner, Groq Multimodal Vision AI, Review Queue & Biometric Attendance Platform</strong>
   </p>
 
   <p>
-    <a href="https://github.com/NighwanTech/AI_SURVILENCE-SYSTEM.git"><img src="https://img.shields.io/badge/GitHub-NighwanTech%2FAI__SURVILENCE--SYSTEM-181717?style=for-the-badge&logo=github&logoColor=white" alt="GitHub Repo" /></a>
+    <a href="https://github.com/rameez-1807/SURVILENCE-SYSTEM-NEW_CODE.git"><img src="https://img.shields.io/badge/GitHub-SURVILENCE--SYSTEM--NEW__CODE-181717?style=for-the-badge&logo=github&logoColor=white" alt="GitHub Repo" /></a>
     <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.115+-005571?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI" /></a>
     <a href="https://ultralytics.com/"><img src="https://img.shields.io/badge/YOLOv8-Ultralytics-00599C?style=for-the-badge&logo=yolo&logoColor=white" alt="YOLOv8" /></a>
     <a href="https://groq.com/"><img src="https://img.shields.io/badge/Groq_Vision_AI-f55036?style=for-the-badge&logo=groq&logoColor=white" alt="Groq Vision AI" /></a>
     <a href="https://react.dev/"><img src="https://img.shields.io/badge/React_19-20232A?style=for-the-badge&logo=react&logoColor=61DAFB" alt="React 19" /></a>
     <a href="https://vitejs.dev/"><img src="https://img.shields.io/badge/Vite_8-B73BFE?style=for-the-badge&logo=vite&logoColor=FFD62E" alt="Vite 8" /></a>
     <a href="https://tailwindcss.com/"><img src="https://img.shields.io/badge/Tailwind_CSS_v4-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white" alt="Tailwind CSS v4" /></a>
-    <a href="https://sqlite.org/"><img src="https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite" /></a>
+    <a href="https://postgresql.org/"><img src="https://img.shields.io/badge/PostgreSQL_/_SQLite-003B57?style=for-the-badge&logo=postgresql&logoColor=white" alt="Database" /></a>
   </p>
 
   <p>
@@ -37,7 +37,10 @@
 
 The **AI Surveillance System** is a next-generation, high-performance security intelligence platform engineered for enterprise facilities, corporate parks, residential societies, and smart cities.
 
-It seamlessly unifies **real-time edge AI video analytics**, **continuous multi-object tracking (ByteTrack)**, **Automatic Number Plate Recognition (ANPR)**, **Groq Multimodal LLM Vision verification**, and **biometric facial attendance** into an ultra-fast, responsive web interface.
+It seamlessly unifies **real-time edge AI video analytics**, **continuous multi-object tracking (ByteTrack)**, **Automatic Number Plate Recognition (ANPR)**, **Groq Multimodal LLM Vision verification**, **Human-in-the-Loop Review Queue**, and **biometric facial attendance** into an ultra-fast, responsive web interface.
+
+> [!NOTE]
+> Engineered with a production-grade asynchronous backend architecture (FastAPI + SQLAlchemy 2.0 Async + WebSockets) coupled with a modern React 19 glassmorphism UI dashboard.
 
 ---
 
@@ -58,12 +61,12 @@ flowchart TD
         Confirm --> Zones["ROI & Security Detection Zones"]
         Zones --> Cooldown["Cooldown Debouncing"]
         Cooldown --> Snapshot["Evidence Snapshot Generator"]
-        Snapshot -.-> Groq["Groq Vision API (Secondary LLM Verification)"]
+        Snapshot -.-> Groq["Groq Vision API (Qwen 3.6 27B Multimodal Verification)"]
     end
 
     subgraph Storage_and_Messaging["💾 Persistence & Real-Time Sync"]
         Cooldown --> EventEngine["Rules & Event Engine"]
-        EventEngine --> DB[(SQLite / PostgreSQL DB)]
+        EventEngine --> DB[(PostgreSQL / Supabase / Neon / SQLite Async DB)]
         EventEngine --> WS["WebSocket Broadcaster"]
     end
 
@@ -72,6 +75,7 @@ flowchart TD
         DB --> UI
         UI --> ANPR_UI["🚗 ANPR License Plates View"]
         UI --> Obj_UI["🎯 Object Tracking & Scanner"]
+        UI --> Review_UI["📝 Human Review Queue (/review-queue)"]
         UI --> Att_UI["🪪 Biometric Face Attendance"]
     end
 ```
@@ -104,7 +108,11 @@ flowchart TD
 - **Background Clutter Removal**: Automatic suppression of background furniture (`chair`, `tv`, `wall`, `door`).
 - **Thinking Tag Sanitizer**: Strips internal `<think>` blocks to deliver clean 1-3 word object titles.
 
-### 🪪 5. Biometric Face Attendance System (`/attendance`)
+### 📝 5. Human-in-the-Loop Review Queue (`/review-queue`)
+- **Unverified Event Audit**: Centralized queue for security personnel to audit detection events marked as `needs_review`.
+- **Label Correction & Model Feedback**: Update object classification tags in real time with instant database sync (`PATCH /api/v1/events/{id}/correct-label`).
+
+### 🪪 6. Biometric Face Attendance System (`/attendance`)
 - **Edge Neural Face Recognition**: In-browser Face-API.js neural network inference.
 - **Employee Directory**: Profile registration, automated check-in/out logging, confidence scoring, and daily attendance cards.
 
@@ -119,7 +127,9 @@ flowchart TD
 | **False Alarm Suppression** | ❌ High false alarms | ❌ None | ✅ **Temporal N-Frame Confirmation** |
 | **License Plate Recognition** | ❌ None | ⚠️ Static only | ✅ **Real-Time Video ANPR + OCR** |
 | **AI LLM Verification** | ❌ None | ❌ None | ✅ **Groq Multimodal Vision (Qwen 27B)** |
+| **Human Review Queue** | ❌ None | ❌ None | ✅ **Interactive Label Correction (/review-queue)** |
 | **Evidence Snapshots** | ❌ Manual | ❌ Manual | ✅ **Auto Annotated JPEG + Watermark** |
+| **Multi-Database Support** | ❌ Proprietary | ❌ None | ✅ **Async PostgreSQL / Neon / Supabase / SQLite** |
 | **Real-Time Dashboard** | ❌ Legacy NVR | ❌ None | ✅ **React 19 + WebSockets + Tailwind v4** |
 
 ---
@@ -130,10 +140,10 @@ flowchart TD
 ┌──────────────────────────────────────────────────────────────────────────┐
 │                               TECH STACK                                 │
 ├─────────────────┬────────────────────────────────────────────────────────┤
-│ Backend Layer   │ Python 3.12+, FastAPI, SQLAlchemy 2.0, Alembic         │
+│ Backend Layer   │ Python 3.12+, FastAPI, SQLAlchemy 2.0 Async, Alembic  │
 │ Computer Vision │ OpenCV, Ultralytics YOLOv8, Supervision (ByteTrack)   │
 │ AI / Multimodal │ Groq Vision API (Qwen 27B), PyTorch, Torchvision       │
-│ Database Layer  │ SQLite (Local) / PostgreSQL-compatible architecture     │
+│ Database Layer  │ PostgreSQL (Neon / Supabase) / SQLite Async Engine     │
 │ Frontend Portal │ React 19, Vite 8, TypeScript, Tailwind CSS v4, Lucide  │
 │ Real-Time Sync  │ WebSockets, Asyncio, HTML5 Canvas                      │
 └─────────────────┴────────────────────────────────────────────────────────┘
@@ -166,6 +176,8 @@ flowchart TD
 | `DELETE` | `/api/v1/vehicles` | Clear all vehicle records from database |
 | `POST` | `/api/v1/events/vision-scan` | High-precision Groq AI Multimodal vision scan |
 | `GET` | `/api/v1/events` | List all security events |
+| `GET` | `/api/v1/events/review-queue` | List unverified events requiring human review |
+| `PATCH` | `/api/v1/events/{id}/correct-label` | Correct label for security event in review queue |
 | `DELETE` | `/api/v1/events/clear-all` | Clear all saved object events |
 | `WS` | `/api/v1/ws` | Real-time WebSocket alerts and telemetry feed |
 
@@ -182,15 +194,15 @@ flowchart TD
 
 ### Step 1: Clone the Repository
 ```bash
-git clone https://github.com/NighwanTech/AI_SURVILENCE-SYSTEM.git
-cd AI_SURVILENCE-SYSTEM
+git clone https://github.com/rameez-1807/SURVILENCE-SYSTEM-NEW_CODE.git
+cd SURVILENCE-SYSTEM-NEW_CODE
 ```
 
 ---
 
 ### Step 2: Backend Setup
 ```bash
-# Navigate to backend
+# Navigate to backend directory
 cd backend
 
 # Create virtual environment
@@ -216,7 +228,7 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 
 ### Step 3: Frontend Setup
 ```bash
-# Open a new terminal and navigate to frontend
+# Open a new terminal and navigate to frontend directory
 cd frontend
 
 # Install Node packages
@@ -238,22 +250,22 @@ npm run dev
 ## 📁 Directory Structure
 
 ```text
-AI_SURVILENCE-SYSTEM/
+SURVILENCE-SYSTEM-NEW_CODE/
 ├── backend/
 │   ├── alembic/                         # Database schema migration scripts
-│   │   └── versions/                    # Revision versions
+│   │   └── versions/                    # Migration revisions
 │   ├── app/
 │   │   ├── api/v1/                      # Versioned REST & WebSocket routers
 │   │   │   ├── detection.py             # Detection status & active tracks
 │   │   │   ├── zones.py                 # Camera ROI polygon zones
 │   │   │   ├── vehicles.py              # ANPR license plate scanner
-│   │   │   ├── events.py                # Security incidents & Groq Vision
+│   │   │   ├── events.py                # Security incidents, Groq Vision & Review Queue
 │   │   │   ├── attendance.py            # Biometric attendance records
 │   │   │   ├── employees.py             # Employee profile management
 │   │   │   ├── cameras.py               # Camera stream management
 │   │   │   └── websockets.py            # WebSocket subscriptions
 │   │   ├── core/                        # FrameHub, CameraManager, YOLO Plugin, Tracker
-│   │   ├── models/                      # SQLAlchemy ORM Models
+│   │   ├── models/                      # Async SQLAlchemy ORM Models
 │   │   ├── repositories/                # Async Database Repositories
 │   │   ├── schemas/                     # Pydantic Request/Response DTOs
 │   │   └── services/                    # Detection Pipeline, Evidence, Groq Verifier
@@ -262,10 +274,10 @@ AI_SURVILENCE-SYSTEM/
 │   └── yolov8n.pt                       # YOLOv8 neural network model
 ├── frontend/
 │   ├── src/
-│   │   ├── components/                  # Reusable UI components & modals
-│   │   ├── pages/                       # Dashboard, Vehicles, Objects, Attendance, LiveView
-│   │   ├── lib/                         # Axios API client
-│   │   └── utils/                       # Tailwind styling helpers
+│   │   ├── components/                  # Reusable UI components & layout navigation
+│   │   ├── pages/                       # Dashboard, Vehicles, Objects, ReviewQueue, Attendance, LiveView
+│   │   ├── lib/                         # Axios API client setup
+│   │   └── utils/                       # Styling & class helper functions
 │   ├── package.json                     # Frontend dependencies
 │   └── vite.config.ts                   # Vite build configuration
 ├── .gitignore                           # Git ignore rules
@@ -283,5 +295,5 @@ AI_SURVILENCE-SYSTEM/
 ---
 
 <div align="center">
-  <sub>Built with precision by <strong>Nighwan Technology</strong> • Enterprise AI Surveillance Platform</sub>
+  <sub>Built with precision • Enterprise AI Surveillance Platform</sub>
 </div>

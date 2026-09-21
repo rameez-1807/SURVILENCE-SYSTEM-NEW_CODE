@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     DATABASE_USER: str = "postgres"
     DATABASE_PASSWORD: str = "postgres"
     DATABASE_NAME: str = "ai_surveillance"
+    SUPABASE_URL: str = ""
+    SUPABASE_URL_SYNC: str = ""
 
     # Server
     SERVER_HOST: str = "0.0.0.0"
@@ -64,11 +66,15 @@ class Settings(BaseSettings):
     @property
     def DATABASE_URL(self) -> str:
         """Construct the async PostgreSQL connection URL."""
+        if self.SUPABASE_URL:
+            return self.SUPABASE_URL
         return "sqlite+aiosqlite:///./ai_surveillance.db"
 
     @property
     def DATABASE_URL_SYNC(self) -> str:
         """Construct the sync PostgreSQL connection URL (for Alembic)."""
+        if self.SUPABASE_URL_SYNC:
+            return self.SUPABASE_URL_SYNC
         return "sqlite:///./ai_surveillance.db"
 
 

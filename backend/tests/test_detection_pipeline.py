@@ -58,32 +58,24 @@ def test_yolo_plugin_class_filtering():
     plugin = YoloPlugin(camera_id, class_filter={"person", "car"}, sample_every_n_frames=1)
     plugin.initialize()
 
-    # Mock YOLO prediction result
-    class MockBox:
-        def __init__(self, xyxy, conf, cls):
-            self.xyxy = [xyxy]
-            self.conf = [conf]
-            self.cls = [cls]
+    import unittest.mock as mock
 
-    class MockResult:
-        def __init__(self):
-            self.names = {0: "person", 1: "bicycle", 2: "car", 3: "dog"}
-            self.boxes = [
-                MockBox([10, 10, 100, 100], 0.9, 0),  # person -> keep
-                MockBox([20, 20, 150, 150], 0.8, 1),  # bicycle -> filter out
-                MockBox([30, 30, 200, 200], 0.95, 2), # car -> keep
-                MockBox([40, 40, 80, 80], 0.85, 3),   # dog -> filter out
+    # Mock YOLO prediction result format returned by detect_frame
+    def mock_detect_frame(frame, confidence, iou, imgsz):
+        return {
+            "inference_ms": 10,
+            "detections": [
+                {"class_name": "person", "confidence": 0.9, "bbox": {"x1": 10, "y1": 10, "x2": 100, "y2": 100}},
+                {"class_name": "bicycle", "confidence": 0.8, "bbox": {"x1": 20, "y1": 20, "x2": 150, "y2": 150}},
+                {"class_name": "car", "confidence": 0.95, "bbox": {"x1": 30, "y1": 30, "x2": 200, "y2": 200}},
+                {"class_name": "dog", "confidence": 0.85, "bbox": {"x1": 40, "y1": 40, "x2": 80, "y2": 80}},
             ]
+        }
 
-    class MockModel:
-        def predict(self, *args, **kwargs):
-            return [MockResult()]
-
-    plugin.model = MockModel()
-
-    frame = np.zeros((480, 640, 3), dtype=np.uint8)
-    envelope = FrameEnvelope(metadata=create_mock_metadata(1, camera_id), frame_data=frame)
-    dets = plugin.process(envelope)
+    with mock.patch("app.core.ai.yolo_plugin.detect_frame", side_effect=mock_detect_frame):
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        envelope = FrameEnvelope(metadata=create_mock_metadata(1, camera_id), frame_data=frame)
+        dets = plugin.process(envelope)
 
     labels = [d.label for d in dets]
     assert "person" in labels

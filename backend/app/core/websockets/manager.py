@@ -43,11 +43,18 @@ class WebSocketManager:
             lambda: collections.deque(maxlen=100)
         )
         self._connections_lock = None
+        self._lock_loop = None
 
     @property
     def lock(self):
-        if self._connections_lock is None:
+        current_loop = None
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        if self._connections_lock is None or (current_loop is not None and self._lock_loop != current_loop):
             self._connections_lock = asyncio.Lock()
+            self._lock_loop = current_loop
         return self._connections_lock
 
     async def connect(self, ws: WebSocket, user: User, tenant_id: uuid.UUID) -> ConnectionData:

@@ -23,6 +23,10 @@ class Event(Base):
     observed_at = Column(DateTime(timezone=True), nullable=False)
     confidence = Column(Float, nullable=False, default=0.0)
     
+    needs_review = Column(sa.Boolean, nullable=False, default=False)
+    is_llm_verified = Column(sa.Boolean, nullable=False, default=False)
+    corrected_label = Column(String, nullable=True)
+    
     model_id = Column(String, nullable=False)
     model_version = Column(String, nullable=False)
     

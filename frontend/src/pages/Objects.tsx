@@ -21,6 +21,8 @@ import {
 import { api } from '../lib/api';
 import { cn } from '../utils/cn';
 
+const LOW_CONFIDENCE_THRESHOLD = 0.45;
+
 interface ObjectDetectionEvent {
   id: string;
   event_type: string;
@@ -37,6 +39,8 @@ interface DetectedObject {
   label: string;
   score: number;
   bbox?: number[];
+  isLlmVerified?: boolean;
+  needsReview?: boolean;
 }
 
 export default function Objects() {
@@ -99,9 +103,10 @@ export default function Objects() {
   const uploadCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const uploadImgRef = useRef<HTMLImageElement | null>(null);
   const animFrameId = useRef<number | null>(null);
-  const modelRef = useRef<any>(null);
   const lastSavedTimeRef = useRef<{ [key: string]: number }>({});
   const lastSpokenTimeRef = useRef<{ [key: string]: number }>({});
+  const lastGroqCallRef = useRef<number>(0);
+  const GROQ_CALL_COOLDOWN_MS = 3000;
 
   // Helper to refine raw COCO object labels for Computer Mouse, Pen, Marker, Mobile Phone & stationery
   const refineObjectLabel = (rawLabel: string, bbox: number[], isPenModeActive: boolean): { label: string; isPen: boolean; isMouse: boolean; isFurniture: boolean } => {
@@ -246,6 +251,11 @@ export default function Objects() {
         camera_name: 'Groq AI Vision Scanner'
       });
 
+      if (res.data && res.data.success === false) {
+        setSaveStatus('Vision engine error: ' + (res.data.error || 'Unknown error'));
+        return;
+      }
+
       if (res.data && res.data.object_name) {
         let rawName = res.data.object_name;
         rawName = rawName.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/[*`#]/g, '').trim();
@@ -256,35 +266,44 @@ export default function Objects() {
           } catch (e) {}
         }
         const detName = rawName.length > 40 ? rawName.substring(0, 40) : rawName;
-        const detScore = res.data.confidence || 0.98;
+        const detScore = res.data.confidence || 1.0;
+        const isGroq = res.data.source === 'groq_vision_llm';
 
         const detObj: DetectedObject = {
           label: detName,
-          score: detScore
+          score: detScore,
+          isLlmVerified: isGroq
         };
 
         setCurrentDetection(detObj);
         announceObjectName(detName, detScore);
 
         if (autoSave) {
-          saveObjectDetection(detName, detScore, 'Groq AI Vision Scanner');
+          saveObjectDetection(detName, detScore, 'Groq AI Vision Scanner', true, false);
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Groq vision scan error:", err);
+      if (err.response?.status === 503) {
+        setSaveStatus('Vision engine not configured — check GROQ_API_KEY');
+      } else {
+        setSaveStatus('Failed to run Groq vision scan.');
+      }
     } finally {
       setModelLoading(false);
     }
   };
 
   // Permanently save detected object to SQLite database via backend API
-  const saveObjectDetection = async (label: string, score: number, cameraSource = 'Live AI Scanner') => {
+  const saveObjectDetection = async (label: string, score: number, cameraSource = 'Live AI Scanner', isLlmVerified = false, needsReview = false) => {
     try {
       setSaveStatus(`Saving '${label}' to Database...`);
       await api.post('/events/detect-object', {
         object_class: label,
         confidence: score,
         camera_name: cameraSource,
+        is_llm_verified: isLlmVerified,
+        needs_review: needsReview,
         evidence_reference: `Scanned: ${label.toUpperCase()} (${Math.round(score * 100)}% Match)`
       });
 
@@ -311,10 +330,67 @@ export default function Objects() {
       setError(null);
       await loadModel();
 
-      // Request webcam stream
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }
-      });
+      // Check if mediaDevices API is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setError('Camera API not available. Please use Chrome or Edge browser and ensure the page is on localhost or HTTPS.');
+        return;
+      }
+
+      let stream: MediaStream | null = null;
+      let lastErr: any = null;
+
+      // Step 1: Try the simplest possible request first — this also triggers the permission prompt
+      // Browsers hide deviceId until the user grants permission, so we must try `video: true` first
+      const simpleSets: MediaStreamConstraints[] = [
+        { video: true },
+        { video: { width: { ideal: 1280 }, height: { ideal: 720 } } },
+        { video: { width: { ideal: 640 }, height: { ideal: 480 } } },
+      ];
+
+      for (const constraints of simpleSets) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          console.log('[Camera] Stream acquired with constraints:', JSON.stringify(constraints));
+          break;
+        } catch (e: any) {
+          console.warn('[Camera] Failed with constraints', JSON.stringify(constraints), ':', e.name, e.message);
+          lastErr = e;
+        }
+      }
+
+      // Step 2: If still no stream, enumerate real deviceIds (now available after permission prompt) and try each
+      if (!stream) {
+        try {
+          const allDevices = await navigator.mediaDevices.enumerateDevices();
+          const videoDevices = allDevices.filter(d => d.kind === 'videoinput' && d.deviceId);
+          console.log('[Camera] Video devices after permission attempt:', videoDevices.map(d => d.label || d.deviceId));
+
+          for (const device of videoDevices) {
+            try {
+              stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: device.deviceId } } });
+              console.log('[Camera] Got stream via deviceId:', device.label || device.deviceId);
+              break;
+            } catch (e: any) {
+              console.warn('[Camera] deviceId attempt failed:', e.name);
+              lastErr = e;
+            }
+          }
+        } catch (_) {}
+      }
+
+      if (!stream) {
+        const name = lastErr?.name || '';
+        if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+          setError('Camera permission denied. Click the 🔒 lock icon in your browser address bar → Allow Camera → then try again.');
+        } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+          setError('Camera not detected by browser. Try: open Windows Camera app first to verify it works, then come back and try again.');
+        } else if (name === 'NotReadableError' || name === 'TrackStartError') {
+          setError('Camera is in use by another app (Teams, Zoom, Camera app, etc.). Close those apps and try again.');
+        } else {
+          setError(`Camera error: ${lastErr?.message || 'Unknown'}. Make sure no other app is using the camera.`);
+        }
+        return;
+      }
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -328,7 +404,7 @@ export default function Objects() {
       console.error('Error starting scanner:', err);
       setModelLoading(false);
       setIsScanning(false);
-      setError('Could not access camera or load AI object detection model.');
+      setError(`Camera error: ${err?.message || 'Unknown error'}. Please allow camera access and try again.`);
     }
   };
 
@@ -399,6 +475,40 @@ export default function Objects() {
                 bbox: [x1, y1, w, h]
               };
 
+              if (score < LOW_CONFIDENCE_THRESHOLD) {
+                if (Date.now() - lastGroqCallRef.current > GROQ_CALL_COOLDOWN_MS) {
+                  lastGroqCallRef.current = Date.now();
+                  
+                  const tempCanvas = document.createElement('canvas');
+                  tempCanvas.width = w;
+                  tempCanvas.height = h;
+                  const tempCtx = tempCanvas.getContext('2d');
+                  if (tempCtx) {
+                    tempCtx.drawImage(canvas, x1, y1, w, h, 0, 0, w, h);
+                    const croppedB64 = tempCanvas.toDataURL('image/jpeg', 0.85);
+
+                    api.post('/events/vision-scan', {
+                      image_base64: croppedB64,
+                      camera_name: 'Auto Hybrid Scanner'
+                    }).then(res => {
+                      if (res.data && res.data.success !== false && res.data.object_name) {
+                        detObj.label = res.data.object_name;
+                        detObj.isLlmVerified = true;
+                        setCurrentDetection(detObj);
+                        announceObjectName(detObj.label, detObj.score);
+                        if (autoSave) {
+                          saveObjectDetection(detObj.label, detObj.score, 'Auto Hybrid Scanner', detObj.isLlmVerified, detObj.needsReview);
+                        }
+                      } else {
+                        detObj.needsReview = true;
+                      }
+                    }).catch(() => {
+                      detObj.needsReview = true;
+                    });
+                  }
+                }
+              }
+
               const isPerson = rawClass.toLowerCase() === 'person';
 
               // Prioritize foreground items (Mouse, Pen, Phone, Laptop) over background furniture & person
@@ -460,7 +570,7 @@ export default function Objects() {
               const lastSaved = lastSavedTimeRef.current[currentDet.label] || 0;
               if (now - lastSaved > 4000) {
                 lastSavedTimeRef.current[currentDet.label] = now;
-                saveObjectDetection(currentDet.label, currentDet.score, 'Live Camera Scanner');
+                saveObjectDetection(currentDet.label, currentDet.score, 'Live Camera Scanner', currentDet.isLlmVerified, currentDet.needsReview);
               }
             }
           } else {
@@ -552,7 +662,7 @@ export default function Objects() {
               announceObjectName(top.label, top.score);
 
               if (autoSave) {
-                saveObjectDetection(top.label, top.score, `Uploaded Image (${file.name})`);
+                saveObjectDetection(top.label, top.score, `Uploaded Image (${file.name})`, top.isLlmVerified, top.needsReview);
               }
             }
           } catch (apiErr) {
@@ -775,7 +885,11 @@ export default function Objects() {
                           {currentDetection.label}
                         </div>
                         <div className="text-emerald-400 font-mono text-[11px] font-bold">
-                          {Math.round(currentDetection.score * 100)}% AI Confidence Match
+                          {currentDetection.isLlmVerified ? (
+                            <span className="flex items-center gap-1"><Sparkles className="w-3 h-3"/> AI-Verified</span>
+                          ) : (
+                            `${Math.round(currentDetection.score * 100)}% AI Confidence Match`
+                          )}
                         </div>
                       </div>
                     </div>

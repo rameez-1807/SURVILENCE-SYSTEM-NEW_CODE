@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, RoleChecker, get_db
 from app.models.membership import Role
-from app.schemas.event import EventResponse
+from app.schemas.event import EventResponse, CorrectLabelRequest
 from app.services.event import EventService
 from app.repositories.event import EventRepository
 
@@ -36,6 +36,8 @@ class ObjectDetectionRequest(BaseModel):
     confidence: float
     camera_name: Optional[str] = "Live Camera"
     evidence_reference: Optional[str] = None
+    is_llm_verified: bool = False
+    needs_review: bool = False
 
 
 @router.get("", response_model=List[EventResponse])
@@ -51,6 +53,47 @@ async def list_events(
     stmt = select(Event).order_by(Event.observed_at.desc()).offset(skip).limit(limit)
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+@router.get("/review-queue", response_model=List[EventResponse])
+async def get_review_queue(
+    limit: int = Query(100, ge=1, le=1000),
+    db: AsyncSession = Depends(get_db),
+) -> List[EventResponse]:
+    """Get all events that need review."""
+    from app.models.event import Event
+    from sqlalchemy import select
+
+    stmt = select(Event).where(Event.needs_review == True).order_by(Event.observed_at.desc()).limit(limit)
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+@router.patch("/{event_id}/correct-label", response_model=EventResponse)
+async def correct_label(
+    event_id: uuid.UUID,
+    req: CorrectLabelRequest,
+    current_user: CurrentUser,
+    x_tenant_id: TenantHeader = None,
+    db: AsyncSession = Depends(get_db),
+) -> EventResponse:
+    """Correct the label of a detection event."""
+    from app.models.event import Event
+    event = await db.get(Event, event_id)
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+        
+    user_tenant_id = get_tenant_id_context(current_user, x_tenant_id)
+    if user_tenant_id and event.tenant_id != user_tenant_id:
+        raise HTTPException(status_code=404, detail="Event not found")
+        
+    event.corrected_label = req.corrected_label
+    event.needs_review = False
+    
+    await db.commit()
+    await db.refresh(event)
+    
+    return event
 
 
 @router.post("/detect-object", response_model=EventResponse, status_code=status.HTTP_201_CREATED)
@@ -116,6 +159,8 @@ async def create_object_detection_event(
         state="OPEN",
         observed_at=datetime.now(timezone.utc),
         confidence=req.confidence,
+        needs_review=req.needs_review or req.confidence < 0.45,
+        is_llm_verified=req.is_llm_verified,
         model_id="coco-ssd",
         model_version="v2",
         evidence_reference=req.evidence_reference or f"Object Scan: {req.object_class.title()}",
@@ -153,73 +198,76 @@ async def vision_scan_object(
     
     api_key = req.groq_api_key or os.environ.get("GROQ_API_KEY", "") or settings.GROQ_API_KEY
     
-    object_name = "Computer Mouse"
-    confidence = 0.98
+    if not api_key:
+        raise HTTPException(status_code=503, detail="Vision engine not configured: GROQ_API_KEY is missing. Set it in backend/.env")
+        
+    object_name = None
     
-    if api_key:
-        try:
-            async with httpx.AsyncClient(timeout=12.0) as client:
-                resp = await client.post(
-                    "https://api.groq.com/openai/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {api_key}"},
-                    json={
-                        "model": "qwen/qwen3.6-27b",
-                        "messages": [
-                            {
-                                "role": "system",
-                                "content": "You are a real-time computer vision AI. Identify the primary object held up in front of the camera (e.g. Computer Mouse, Smartphone, Gel Pen, Water Bottle, Laptop, Glasses, Key Ring, Coffee Mug). Output ONLY the clean object title (1-3 words max). DO NOT THINK OUT LOUD OR WRITE THINK TAGS."
-                            },
-                            {
-                                "role": "user",
-                                "content": [
-                                    {
-                                        "type": "text",
-                                        "text": "What primary object is shown in this camera frame? Return ONLY the object name (e.g. Computer Mouse, Smartphone, Gel Pen, Water Bottle)."
-                                    },
-                                    {
-                                        "type": "image_url",
-                                        "image_url": {
-                                            "url": req.image_base64 if req.image_base64.startswith("data:") else f"data:image/jpeg;base64,{req.image_base64}"
-                                        }
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            resp = await client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={
+                    "model": "qwen/qwen3.6-27b",
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "You are a real-time computer vision AI. Identify the primary object held up in front of the camera (e.g. Computer Mouse, Smartphone, Gel Pen, Water Bottle, Laptop, Glasses, Key Ring, Coffee Mug). Output ONLY the clean object title (1-3 words max). DO NOT THINK OUT LOUD OR WRITE THINK TAGS."
+                        },
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": "What primary object is shown in this camera frame? Return ONLY the object name (e.g. Computer Mouse, Smartphone, Gel Pen, Water Bottle)."
+                                },
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": req.image_base64 if req.image_base64.startswith("data:") else f"data:image/jpeg;base64,{req.image_base64}"
                                     }
-                                ]
-                            }
-                        ],
-                        "temperature": 0.1,
-                        "max_tokens": 60
-                    }
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    content_str = data["choices"][0]["message"]["content"]
-                    
-                    # 1. Remove <think>...</think> blocks
-                    clean = re.sub(r'<think>.*?</think>', '', content_str, flags=re.DOTALL).strip()
-                    
-                    # 2. Extract JSON if present
-                    if "{" in clean and "}" in clean:
-                        try:
-                            json_str = clean[clean.find("{"):clean.rfind("}")+1]
-                            parsed = json.loads(json_str)
-                            clean = parsed.get("object_name", clean)
-                        except Exception:
-                            pass
+                                }
+                            ]
+                        }
+                    ],
+                    "temperature": 0.1,
+                    "max_tokens": 60
+                }
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                content_str = data["choices"][0]["message"]["content"]
+                
+                # 1. Remove <think>...</think> blocks
+                clean = re.sub(r'<think>.*?</think>', '', content_str, flags=re.DOTALL).strip()
+                
+                # 2. Extract JSON if present
+                if "{" in clean and "}" in clean:
+                    try:
+                        json_str = clean[clean.find("{"):clean.rfind("}")+1]
+                        parsed = json.loads(json_str)
+                        clean = parsed.get("object_name", clean)
+                    except Exception:
+                        pass
 
-                    # 3. Clean markdown & quotes
-                    clean = re.sub(r'[*`#"\']', '', clean).strip()
-                    clean = re.sub(r'^(the\s+object\s+is\s+|object\s+name:\s+|identified\s+object:\s+|object:\s+)', '', clean, flags=re.IGNORECASE).strip()
+                # 3. Clean markdown & quotes
+                clean = re.sub(r'[*`#"\']', '', clean).strip()
+                clean = re.sub(r'^(the\s+object\s+is\s+|object\s+name:\s+|identified\s+object:\s+|object:\s+)', '', clean, flags=re.IGNORECASE).strip()
 
-                    # 4. Filter clean string (1-3 words max)
-                    if clean and len(clean) < 40:
-                        object_name = clean.title()
-        except Exception as e:
-            print(f"Groq API Vision call fallback: {e}")
+                # 4. Filter clean string (1-3 words max)
+                if clean and len(clean) < 40:
+                    object_name = clean.title()
+            else:
+                return {"success": False, "error": f"Groq API returned {resp.status_code}", "object_name": None, "confidence": None}
+    except Exception as e:
+        return {"success": False, "error": f"Groq API call failed: {str(e)}", "object_name": None, "confidence": None}
 
     return {
         "success": True,
         "object_name": object_name,
-        "confidence": confidence,
-        "source": "Groq AI Vision Engine (Qwen 27B)"
+        "confidence": None,
+        "source": "groq_vision_llm"
     }
 
 
