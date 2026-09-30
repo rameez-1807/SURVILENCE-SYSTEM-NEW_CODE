@@ -45,9 +45,10 @@ class VehicleStats(BaseModel):
 class ANPRScanRequest(BaseModel):
     image_base64: Optional[str] = Field(default=None, description="Base64 encoded vehicle plate image")
     manual_plate: Optional[str] = Field(default=None, description="Direct/manual plate input if overriding image OCR")
-    vehicle_type: Optional[str] = Field(default="car", description="Vehicle type if specified")
+    vehicle_type: Optional[str] = Field(default=None, description="Vehicle type if specified manually")
     camera_name: Optional[str] = Field(default="Live ANPR Camera", description="Camera source name")
     location_spot: Optional[str] = Field(default="Apartment Main Gate", description="Location spot (e.g., Visitor Parking, Apartment Gate)")
+    is_live_stream: Optional[bool] = Field(default=False, description="Whether request is from continuous live camera loop")
 
 
 class ANPRScanResponse(BaseModel):
@@ -56,5 +57,19 @@ class ANPRScanResponse(BaseModel):
     vehicle_type: Optional[str] = None
     confidence: Optional[float] = None
     location_spot: Optional[str] = None
+    bounding_box: Optional[List[int]] = Field(default=None, description="Bounding box [x1, y1, x2, y2] of the plate")
+    cropped_plate_base64: Optional[str] = Field(default=None, description="Cropped number plate preview image in Base64")
+    is_valid_format: Optional[bool] = Field(default=False, description="True if matched standard Indian plate format")
+    raw_ocr_text: Optional[str] = Field(default=None, description="Raw OCR text before positional correction")
+    already_saved: Optional[bool] = Field(default=False, description="True if plate already exists in DB and duplicate was prevented")
+    security_status: Optional[dict] = Field(default=None, description="Enterprise access control & security classification")
+    consensus_frames: Optional[int] = Field(default=None, description="Number of temporal frames used for consensus voting")
+    consensus_plate: Optional[str] = Field(default=None, description="Consensus plate resolved across multiple frames")
     message: str
     record: Optional[VehicleOut] = None
+
+
+class WatchlistEntry(BaseModel):
+    number_plate: str = Field(..., description="Standard registration plate number")
+    category: str = Field(default="RESIDENT", description="Category: RESIDENT, VIP, BLACKLIST, VISITOR")
+    notes: Optional[str] = Field(default=None, description="Optional notes or owner info")

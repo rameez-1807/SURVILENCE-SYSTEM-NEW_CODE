@@ -49,3 +49,8 @@ backend/evidence/snapshots/*.png
 
 # Alembic
 alembic/versions/*.pyc
+
+# Model Weights (large binaries)
+models/*.pt
+backend/*.pt
+runs/

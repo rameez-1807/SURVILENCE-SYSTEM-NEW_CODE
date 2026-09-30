@@ -1,7 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Cctv, Lock, User, AlertCircle, Loader2 } from 'lucide-react';
-import { api } from '../lib/api';
 
 export default function Login() {
   const [email, setEmail] = useState('admin@example.com');
@@ -10,37 +9,23 @@ export default function Login() {
   const [error, setError] = useState('');
   const navigate = useNavigate();
 
+  useEffect(() => {
+    const existingToken = localStorage.getItem('token');
+    if (existingToken) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [navigate]);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
 
-    try {
-      const params = new URLSearchParams();
-      params.append('username', email);
-      params.append('password', password);
-
-      const res = await api.post('/auth/token', params, {
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded'
-          }
-        }
-      );
-      
-      const { access_token } = res.data;
-      localStorage.setItem('token', access_token);
-      
-      // Navigate to dashboard
+    // DEMO MODE: Accept any credentials and redirect to dashboard
+    setTimeout(() => {
+      localStorage.setItem('token', 'demo-token-' + Date.now());
       navigate('/dashboard', { replace: true });
-    } catch (err: any) {
-      if (err.response?.status === 401) {
-        setError('Invalid email or password');
-      } else {
-        setError('Failed to connect to the server. Please try again.');
-      }
-    } finally {
-      setLoading(false);
-    }
+    }, 800);
   };
 
   return (

@@ -29,9 +29,11 @@ class UserRepository:
 
     async def get_by_email(self, email: str) -> Optional[User]:
         """Return a user by email, loading memberships."""
+        from sqlalchemy import func
+        clean_email = email.strip().lower() if email else ""
         stmt = (
             select(User)
-            .where(User.email == email)
+            .where(func.lower(User.email) == clean_email)
             .options(selectinload(User.memberships))
         )
         result = await self.db.execute(stmt)

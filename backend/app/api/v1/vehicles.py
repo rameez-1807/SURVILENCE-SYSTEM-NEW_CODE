@@ -1,3 +1,4 @@
+import re
 import uuid
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -10,7 +11,8 @@ from app.schemas.vehicle import (
     VehicleListResponse,
     VehicleStats,
     ANPRScanRequest,
-    ANPRScanResponse
+    ANPRScanResponse,
+    WatchlistEntry
 )
 from app.services.vehicle import VehicleService
 
@@ -63,13 +65,14 @@ async def scan_vehicle_plate(
     and return the scanned detection result.
     """
     try:
-        success, record, message = await VehicleService.scan_and_save(
+        success, record, message, details = await VehicleService.scan_and_save(
             db=db,
             image_base64=payload.image_base64,
             manual_plate=payload.manual_plate,
             vehicle_type=payload.vehicle_type,
             camera_name=payload.camera_name or "Live ANPR Camera",
-            location_spot=payload.location_spot or "Apartment Main Gate"
+            location_spot=payload.location_spot or "Apartment Main Gate",
+            is_live_stream=bool(payload.is_live_stream)
         )
         if not success or not record:
             return ANPRScanResponse(
@@ -82,6 +85,14 @@ async def scan_vehicle_plate(
             vehicle_type=record.vehicle_type,
             confidence=record.confidence,
             location_spot=record.location_spot,
+            bounding_box=details.get("bounding_box"),
+            cropped_plate_base64=details.get("cropped_plate_base64"),
+            is_valid_format=details.get("is_valid_format", False),
+            raw_ocr_text=details.get("raw_ocr_text"),
+            already_saved=details.get("already_saved", False),
+            security_status=details.get("security_status"),
+            consensus_frames=details.get("consensus_frames"),
+            consensus_plate=details.get("consensus_plate"),
             message=message,
             record=record
         )
@@ -124,3 +135,32 @@ async def delete_vehicle_record(
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle record not found")
     return {"status": "deleted", "id": str(vehicle_id)}
+
+
+@router.get("/security/watchlist")
+async def get_watchlist():
+    """
+    Returns enterprise access control watchlist (BLACKLIST, RESIDENT, VIP, VISITOR).
+    """
+    return VehicleService.SECURITY_WATCHLIST
+
+
+@router.post("/security/watchlist")
+async def set_watchlist_entry(entry: WatchlistEntry):
+    """
+    Registers or updates a vehicle plate in the enterprise access control list.
+    """
+    clean = re.sub(r'[^A-Za-z0-9]', '', entry.number_plate).upper()
+    VehicleService.SECURITY_WATCHLIST[clean] = entry.category.upper()
+    return {"status": "success", "plate": clean, "category": entry.category.upper()}
+
+
+@router.delete("/security/watchlist/{number_plate}")
+async def remove_watchlist_entry(number_plate: str):
+    """
+    Removes a vehicle plate from the security watchlist.
+    """
+    clean = re.sub(r'[^A-Za-z0-9]', '', number_plate).upper()
+    if clean in VehicleService.SECURITY_WATCHLIST:
+        del VehicleService.SECURITY_WATCHLIST[clean]
+    return {"status": "removed", "plate": clean}

@@ -13,6 +13,7 @@ from app.api.v1 import api_v1_router
 from app.core.config import settings
 from app.core.pipeline.orchestrator import pipeline_orchestrator
 from app.core.ai.yolo11m_singleton import load_model as load_yolo11m
+from app.core.ai.yoloe_singleton import load_model as load_yoloe
 
 
 @asynccontextmanager
@@ -33,6 +34,13 @@ async def lifespan(app: FastAPI):
         await asyncio.to_thread(load_yolo11m)
     except Exception as e:
         print(f"[ERROR] Failed to load YOLO11m model: {e}")
+    
+    # Preload YOLOE open-vocabulary model
+    try:
+        await asyncio.to_thread(load_yoloe)
+        print("[OBJECT-DETECTION] YOLOE model loaded")
+    except Exception as e:
+        print(f"[ERROR] Failed to load YOLOE model: {e}")
     
     yield
     # Shutdown

@@ -20,6 +20,7 @@ from app.api.v1.recognition_history import router as recognition_history_router
 from app.api.v1.vehicles import router as vehicles_router
 from app.api.v1.detection import router as detection_router
 from app.api.v1.zones import router as zones_router
+from app.api.v1.object_detection_ws import router as object_detection_ws_router
 
 api_v1_router = APIRouter(prefix="/api/v1")
 
@@ -37,4 +38,5 @@ api_v1_router.include_router(recognition_history_router)
 api_v1_router.include_router(vehicles_router)
 api_v1_router.include_router(detection_router)
 api_v1_router.include_router(zones_router)
+api_v1_router.include_router(object_detection_ws_router)
 

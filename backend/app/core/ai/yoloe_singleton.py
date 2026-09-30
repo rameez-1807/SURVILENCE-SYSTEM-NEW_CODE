@@ -1,15 +1,14 @@
 """
-AI Surveillance System - YOLO11m Singleton Detector
+AI Surveillance System - YOLOE Open-Vocabulary Singleton Detector
 
-Loads the YOLO11m model ONCE at module level (or on first call) and exposes
+Loads a YOLOE prompt-free checkpoint ONCE at startup and exposes
 a `detect_frame()` function for high-performance per-frame inference.
 
-This is used exclusively for the browser webcam detection endpoint.
-The existing RTSP pipeline (YoloPlugin + ByteTrack) is NOT affected.
+This is used for the browser webcam open-vocabulary live detection WebSocket.
+The existing YOLO11m singleton and RTSP pipeline are NOT affected.
 """
 
 import logging
-import os
 import time
 import threading
 from pathlib import Path
@@ -19,24 +18,45 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# Thread-safe singleton lock
+# ---------------------------------------------------------------------------
+# Thread-safe singleton state
+# ---------------------------------------------------------------------------
 _model_lock = threading.Lock()
 _model = None
 _model_names: Dict[int, str] = {}
 _device: str = "cpu"
+_loaded: bool = False
+
+# Default checkpoint — Ultralytics will auto-download if missing
+_DEFAULT_CHECKPOINT = "yoloe-11s-seg-pf.pt"
 
 
 def _resolve_model_path() -> str:
-    """Resolve the YOLO11m model path from settings or default."""
+    """Resolve YOLOE model path from settings, falling back to models/ dir."""
     try:
         from app.core.config import settings
-        model_path = getattr(settings, "YOLO11M_MODEL_PATH", None)
-        if model_path:
-            return model_path
+        cfg_path = getattr(settings, "YOLOE_MODEL_PATH", None)
+        if cfg_path:
+            p = Path(cfg_path)
+            if p.is_absolute():
+                return str(p)
+            # Relative to backend dir
+            backend_dir = Path(__file__).resolve().parents[3]
+            candidate = backend_dir / cfg_path
+            if candidate.exists():
+                return str(candidate)
+            return str(cfg_path)  # Let Ultralytics handle it
     except Exception:
         pass
-    # Default: relative to backend directory
-    return str(Path(__file__).resolve().parents[2] / "models" / "yolo11m.pt")
+
+    # Default: <project_root>/models/<checkpoint>
+    models_dir = Path(__file__).resolve().parents[4] / "models"
+    candidate = models_dir / _DEFAULT_CHECKPOINT
+    if candidate.exists():
+        return str(candidate)
+
+    # Fallback: just the checkpoint name — Ultralytics auto-downloads
+    return _DEFAULT_CHECKPOINT
 
 
 def _resolve_device() -> str:
@@ -45,7 +65,7 @@ def _resolve_device() -> str:
         import torch
         if torch.cuda.is_available():
             gpu_name = torch.cuda.get_device_name(0)
-            logger.info(f"[YOLO11m] CUDA GPU detected: {gpu_name}")
+            logger.info(f"[YOLOE] CUDA GPU detected: {gpu_name}")
             return "cuda:0"
     except Exception:
         pass
@@ -54,19 +74,19 @@ def _resolve_device() -> str:
 
 def load_model() -> None:
     """
-    Load the YOLO11m model into memory. Thread-safe, idempotent.
+    Load the YOLOE model into memory. Thread-safe, idempotent.
     Call this at startup to warm the model before first request.
     """
-    global _model, _model_names, _device
+    global _model, _model_names, _device, _loaded
 
     with _model_lock:
-        if _model is not None:
-            return  # Already loaded
+        if _loaded:
+            return
 
         model_path = _resolve_model_path()
         _device = _resolve_device()
 
-        logger.info(f"[YOLO11m] Loading model from '{model_path}' on device '{_device}'...")
+        logger.info(f"[YOLOE] Loading open-vocabulary model from '{model_path}' on '{_device}'...")
         start = time.perf_counter()
 
         try:
@@ -79,56 +99,70 @@ def load_model() -> None:
                 try:
                     _model.to(_device)
                 except Exception as e:
-                    logger.warning(f"[YOLO11m] Failed to move to {_device}, falling back to CPU: {e}")
+                    logger.warning(f"[YOLOE] Failed to move to {_device}, falling back to CPU: {e}")
                     _device = "cpu"
 
             # Cache class names
             if hasattr(_model, "names"):
-                _model_names = _model.names if isinstance(_model.names, dict) else {i: n for i, n in enumerate(_model.names)}
+                _model_names = (
+                    _model.names
+                    if isinstance(_model.names, dict)
+                    else {i: n for i, n in enumerate(_model.names)}
+                )
             else:
                 _model_names = {}
 
+            _loaded = True
             elapsed = (time.perf_counter() - start) * 1000
-            logger.info(f"[YOLO11m] Model loaded successfully on {_device} in {elapsed:.0f}ms ({len(_model_names)} classes)")
+            logger.info(
+                f"[YOLOE] Model loaded successfully on {_device} "
+                f"in {elapsed:.0f}ms ({len(_model_names)} classes)"
+            )
 
         except ImportError:
-            logger.error("[YOLO11m] ultralytics package is required. Install: pip install ultralytics")
+            logger.error("[YOLOE] ultralytics package is required. Install: pip install -U ultralytics")
             raise
         except Exception as e:
-            logger.error(f"[YOLO11m] Failed to load model: {e}")
+            logger.error(f"[YOLOE] Failed to load model: {e}")
             raise
 
 
 def detect_frame(
     frame: np.ndarray,
-    confidence: float = 0.35,
+    confidence: float = 0.45,
     iou: float = 0.45,
     imgsz: int = 640,
 ) -> Dict:
     """
-    Run YOLO11m inference on a single frame (numpy BGR array).
+    Run YOLOE inference on a single BGR numpy frame.
 
-    Returns a dict with:
-      - detections: List[dict] with class_id, class_name, confidence, bbox {x1,y1,x2,y2}
+    Returns dict with:
+      - detections: list of {class_id, name, confidence, x1, y1, x2, y2}
+      - counts: dict mapping class name -> count
       - model: str
       - inference_ms: float
       - frame_width: int
       - frame_height: int
+      - timestamp: float
     """
     global _model, _model_names, _device
 
     # Ensure model is loaded (safety fallback)
-    if _model is None:
+    if not _loaded or _model is None:
         load_model()
 
+    empty_result = {
+        "detections": [],
+        "counts": {},
+        "model": "yoloe",
+        "inference_ms": 0,
+        "frame_width": 0,
+        "frame_height": 0,
+        "timestamp": time.time(),
+    }
+
     if not isinstance(frame, np.ndarray) or frame.size == 0:
-        return {
-            "detections": [],
-            "model": "yolo11m",
-            "inference_ms": 0,
-            "frame_width": 0,
-            "frame_height": 0,
-        }
+        return empty_result
 
     img_h, img_w = frame.shape[:2]
     start = time.perf_counter()
@@ -146,34 +180,26 @@ def detect_frame(
             )
     except RuntimeError as e:
         if "out of memory" in str(e).lower():
-            logger.error(f"[YOLO11m] GPU OOM, falling back to CPU: {e}")
+            logger.error(f"[YOLOE] GPU OOM, falling back to CPU: {e}")
             _device = "cpu"
             try:
                 import torch
                 torch.cuda.empty_cache()
             except Exception:
                 pass
-            return {
-                "detections": [],
-                "model": "yolo11m",
-                "inference_ms": 0,
-                "frame_width": img_w,
-                "frame_height": img_h,
-            }
+            empty_result["frame_width"] = img_w
+            empty_result["frame_height"] = img_h
+            return empty_result
         raise
     except Exception as e:
-        logger.error(f"[YOLO11m] Inference error: {e}")
-        return {
-            "detections": [],
-            "model": "yolo11m",
-            "inference_ms": 0,
-            "frame_width": img_w,
-            "frame_height": img_h,
-        }
+        logger.error(f"[YOLOE] Inference error: {e}")
+        empty_result["frame_width"] = img_w
+        empty_result["frame_height"] = img_h
+        return empty_result
 
     elapsed_ms = (time.perf_counter() - start) * 1000
 
-    detections = []
+    detections: List[Dict] = []
     counts: Dict[str, int] = {}
 
     if results and len(results) > 0:
@@ -182,26 +208,21 @@ def detect_frame(
 
         for box in boxes:
             raw_xyxy = box.xyxy[0]
-            x1, y1, x2, y2 = raw_xyxy.tolist() if hasattr(raw_xyxy, "tolist") else list(raw_xyxy)
+            x1, y1, x2, y2 = (
+                raw_xyxy.tolist() if hasattr(raw_xyxy, "tolist") else list(raw_xyxy)
+            )
             conf = float(box.conf[0])
             cls_id = int(box.cls[0])
             cls_name = _model_names.get(cls_id, f"class_{cls_id}")
 
             detections.append({
                 "class_id": cls_id,
-                "class_name": cls_name,
                 "name": cls_name,
                 "confidence": round(conf, 4),
                 "x1": round(x1, 1),
                 "y1": round(y1, 1),
                 "x2": round(x2, 1),
                 "y2": round(y2, 1),
-                "bbox": {
-                    "x1": round(x1, 1),
-                    "y1": round(y1, 1),
-                    "x2": round(x2, 1),
-                    "y2": round(y2, 1),
-                },
             })
 
             counts[cls_name] = counts.get(cls_name, 0) + 1
@@ -209,7 +230,7 @@ def detect_frame(
     return {
         "detections": detections,
         "counts": counts,
-        "model": "yolo11m",
+        "model": "yoloe",
         "inference_ms": round(elapsed_ms, 2),
         "frame_width": img_w,
         "frame_height": img_h,
@@ -219,9 +240,9 @@ def detect_frame(
 
 def is_loaded() -> bool:
     """Check if the model is currently loaded."""
-    return _model is not None
+    return _loaded
 
 
 def get_class_names() -> Dict[int, str]:
-    """Return the COCO class name mapping."""
+    """Return the class name mapping."""
     return dict(_model_names)
