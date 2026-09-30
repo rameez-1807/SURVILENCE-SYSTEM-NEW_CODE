@@ -267,12 +267,13 @@ export default function Objects() {
 
     // 4. Connect WebSocket
     const wsUrl = getWsUrl('/api/v1/ws/object-detection');
+    console.log('[LiveCamera] Connecting to WebSocket:', wsUrl);
     const ws = new WebSocket(wsUrl);
     liveWsRef.current = ws;
 
     ws.onopen = () => {
       setLiveWsStatus('connected');
-      console.log('[LiveCamera] WebSocket connected');
+      console.log('[LiveCamera] WebSocket connected to', wsUrl);
 
       // 5. Start sending frames at target FPS
       const targetFps = 8;
