@@ -37,6 +37,10 @@ class CorrectLabelRequest(BaseModel):
     corrected_label: str
 
 
+class StateTransitionRequest(BaseModel):
+    reason: Optional[str] = None
+
+
 class EventResponse(EventBase):
     id: uuid.UUID
     tenant_id: uuid.UUID

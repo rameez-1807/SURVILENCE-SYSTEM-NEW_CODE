@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, RoleChecker, get_db
 from app.models.membership import Role
-from app.schemas.event import EventResponse, CorrectLabelRequest
+from app.schemas.event import EventResponse, CorrectLabelRequest, StateTransitionRequest
 from app.services.event import EventService
 from app.repositories.event import EventRepository
 
