@@ -1,0 +1,1 @@
+export default function Health() { return ( <div><h2 className="text-2xl font-bold mb-4">Health</h2><div className="bg-surface border border-border rounded-lg p-6"><p className="text-text-muted">This is the Health placeholder page.</p></div></div> ); }
