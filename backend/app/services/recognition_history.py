@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import math
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -6,7 +8,8 @@ from app.repositories.recognition_history import RecognitionHistoryRepository
 from app.schemas.recognition_history import (
     RecognitionHistoryCreate,
     RecognitionHistoryResponse,
-    RecognitionHistoryListResponse
+    RecognitionHistoryListResponse,
+    RecognitionDashboardStats
 )
 
 import logging
@@ -63,7 +66,6 @@ class RecognitionHistoryService:
         end_date: Optional[str] = None
     ) -> RecognitionDashboardStats:
         """Fetch face recognition dashboard metrics and charts dataset."""
-        from app.schemas.recognition_history import RecognitionDashboardStats
         stats = await self.repo.get_dashboard_stats(period=period, start_date=start_date, end_date=end_date)
         return RecognitionDashboardStats(
             total_registered_employees=stats["total_registered_employees"],
