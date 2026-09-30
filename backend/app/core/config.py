@@ -79,20 +79,32 @@ class Settings(BaseSettings):
     def DATABASE_URL(self) -> str:
         """Construct the async database connection URL.
 
-        Priority: SUPABASE_DB_URL (Supabase Postgres) > local SQLite.
+        Priority: DATABASE_URL / SUPABASE_DB_URL env > local SQLite.
         """
-        if self.SUPABASE_DB_URL:
-            return self.SUPABASE_DB_URL
+        import os
+        url = os.environ.get("DATABASE_URL") or os.environ.get("SUPABASE_DB_URL") or self.SUPABASE_DB_URL
+        if url:
+            if url.startswith("postgres://"):
+                url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+            elif url.startswith("postgresql://") and not url.startswith("postgresql+"):
+                url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+            return url
         return "sqlite+aiosqlite:///./ai_surveillance.db"
 
     @property
     def DATABASE_URL_SYNC(self) -> str:
         """Construct the sync database connection URL (for Alembic).
 
-        Priority: SUPABASE_DB_URL_SYNC (Supabase Postgres) > local SQLite.
+        Priority: DATABASE_URL_SYNC / SUPABASE_DB_URL_SYNC env > local SQLite.
         """
-        if self.SUPABASE_DB_URL_SYNC:
-            return self.SUPABASE_DB_URL_SYNC
+        import os
+        url = os.environ.get("DATABASE_URL_SYNC") or os.environ.get("SUPABASE_DB_URL_SYNC") or self.SUPABASE_DB_URL_SYNC
+        if url:
+            if url.startswith("postgres://"):
+                url = url.replace("postgres://", "postgresql+psycopg://", 1)
+            elif url.startswith("postgresql://") and not url.startswith("postgresql+"):
+                url = url.replace("postgresql://", "postgresql+psycopg://", 1)
+            return url
         return "sqlite:///./ai_surveillance.db"
 
 

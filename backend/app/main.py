@@ -26,26 +26,21 @@ async def lifespan(app: FastAPI):
     if not settings.GROQ_API_KEY:
         logging.warning("GROQ_API_KEY not set — open-set object naming (/events/vision-scan) will be disabled.")
     
-    import asyncio
-    asyncio.create_task(pipeline_orchestrator.start())
-    
-    # Preload YOLO11m singleton model
-    try:
-        await asyncio.to_thread(load_yolo11m)
-    except Exception as e:
-        print(f"[ERROR] Failed to load YOLO11m model: {e}")
-    
-    # Preload YOLOE open-vocabulary model
-    try:
-        await asyncio.to_thread(load_yoloe)
-        print("[OBJECT-DETECTION] YOLOE model loaded")
-    except Exception as e:
-        print(f"[ERROR] Failed to load YOLOE model: {e}")
+    # Start pipeline orchestrator safely in background
+    if settings.DETECTION_ENABLED:
+        import asyncio
+        try:
+            asyncio.create_task(pipeline_orchestrator.start())
+        except Exception as e:
+            logging.warning(f"Pipeline orchestrator startup failed: {e}")
     
     yield
     # Shutdown
     print(f"[STOP] Shutting down {settings.APP_NAME}")
-    await pipeline_orchestrator.stop()
+    try:
+        await pipeline_orchestrator.stop()
+    except Exception:
+        pass
 
 
 def create_app() -> FastAPI:
