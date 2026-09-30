@@ -24,7 +24,7 @@ async def lifespan(app: FastAPI):
     
     import logging
     if not settings.GROQ_API_KEY:
-        logging.warning("GROQ_API_KEY not set — open-set object naming (/events/vision-scan) will be disabled.")
+        logging.info("GROQ_API_KEY optional — open-set object naming (/events/vision-scan) is disabled unless configured.")
     
     # Start pipeline orchestrator safely in background
     if settings.DETECTION_ENABLED:
@@ -71,6 +71,16 @@ def create_app() -> FastAPI:
 
     # Register API routers
     app.include_router(api_v1_router)
+
+    @app.get("/")
+    @app.head("/")
+    async def root():
+        return {
+            "status": "healthy",
+            "app": settings.APP_NAME,
+            "version": settings.APP_VERSION,
+            "docs": "/docs"
+        }
 
     return app
 

@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     SERVER_HOST: str = "0.0.0.0"
     SERVER_PORT: int = 8000
 
-    # Groq AI Vision Key (Loaded dynamically from backend/.env)
+    # Groq AI Vision Key (Loaded dynamically from env)
     GROQ_API_KEY: str = ""
 
     # Real-Time Detection Pipeline
@@ -80,17 +80,18 @@ class Settings(BaseSettings):
         """Construct the async database connection URL.
 
         Priority: DATABASE_URL / SUPABASE_DB_URL env > local SQLite.
-        Automatically resolves Supabase IPv4 pooler to prevent IPv6 unreachable errors on Render.
+        Automatically strips any accidental whitespace/newlines and resolves Supabase IPv4 pooler.
         """
         import os
-        url = os.environ.get("DATABASE_URL") or os.environ.get("SUPABASE_DB_URL") or self.SUPABASE_DB_URL
-        if url:
+        raw_url = os.environ.get("DATABASE_URL") or os.environ.get("SUPABASE_DB_URL") or self.SUPABASE_DB_URL
+        if raw_url:
+            url = str(raw_url).replace("\r", "").replace("\n", "").strip().strip("'\"").strip()
             if url.startswith("postgres://"):
                 url = url.replace("postgres://", "postgresql+asyncpg://", 1)
             elif url.startswith("postgresql://") and not url.startswith("postgresql+"):
                 url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
             # Render free tier has no IPv6 support. If user provides direct Supabase port 5432, route through IPv4 pooler.
-            if "db.ofknpvaxynvokuzfkwds.supabase.co:5432" in url:
+            if "db.ofknpvaxynvokuzfkwds.supabase.co" in url:
                 url = "postgresql+asyncpg://postgres.ofknpvaxynvokuzfkwds:suHH6zklTgKZoqS8@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres"
             return url
         # If in cloud deployment (Render) without DATABASE_URL, default to the Supabase pooler
@@ -105,13 +106,14 @@ class Settings(BaseSettings):
         Priority: DATABASE_URL_SYNC / SUPABASE_DB_URL_SYNC env > local SQLite.
         """
         import os
-        url = os.environ.get("DATABASE_URL_SYNC") or os.environ.get("SUPABASE_DB_URL_SYNC") or self.SUPABASE_DB_URL_SYNC
-        if url:
+        raw_url = os.environ.get("DATABASE_URL_SYNC") or os.environ.get("SUPABASE_DB_URL_SYNC") or self.SUPABASE_DB_URL_SYNC
+        if raw_url:
+            url = str(raw_url).replace("\r", "").replace("\n", "").strip().strip("'\"").strip()
             if url.startswith("postgres://"):
                 url = url.replace("postgres://", "postgresql+psycopg://", 1)
             elif url.startswith("postgresql://") and not url.startswith("postgresql+"):
                 url = url.replace("postgresql://", "postgresql+psycopg://", 1)
-            if "db.ofknpvaxynvokuzfkwds.supabase.co:5432" in url:
+            if "db.ofknpvaxynvokuzfkwds.supabase.co" in url:
                 url = "postgresql+psycopg://postgres.ofknpvaxynvokuzfkwds:suHH6zklTgKZoqS8@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres"
             return url
         if os.environ.get("RENDER") or os.environ.get("PORT"):
