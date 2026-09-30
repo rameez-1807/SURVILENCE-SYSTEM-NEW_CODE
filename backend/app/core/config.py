@@ -32,8 +32,14 @@ class Settings(BaseSettings):
     DATABASE_USER: str = "postgres"
     DATABASE_PASSWORD: str = "postgres"
     DATABASE_NAME: str = "ai_surveillance"
+    # Supabase API (for supabase-py client)
     SUPABASE_URL: str = ""
-    SUPABASE_URL_SYNC: str = ""
+    SUPABASE_PUBLISHABLE_KEY: str = ""
+    SUPABASE_SECRET_KEY: str = ""
+    SUPABASE_JWKS_URL: str = ""
+    # Supabase Direct DB Connection (for SQLAlchemy)
+    SUPABASE_DB_URL: str = ""       # async: postgresql+asyncpg://...
+    SUPABASE_DB_URL_SYNC: str = ""  # sync:  postgresql+psycopg://...
 
     # Server
     SERVER_HOST: str = "0.0.0.0"
@@ -71,16 +77,22 @@ class Settings(BaseSettings):
 
     @property
     def DATABASE_URL(self) -> str:
-        """Construct the async PostgreSQL connection URL."""
-        if self.SUPABASE_URL:
-            return self.SUPABASE_URL
+        """Construct the async database connection URL.
+
+        Priority: SUPABASE_DB_URL (Supabase Postgres) > local SQLite.
+        """
+        if self.SUPABASE_DB_URL:
+            return self.SUPABASE_DB_URL
         return "sqlite+aiosqlite:///./ai_surveillance.db"
 
     @property
     def DATABASE_URL_SYNC(self) -> str:
-        """Construct the sync PostgreSQL connection URL (for Alembic)."""
-        if self.SUPABASE_URL_SYNC:
-            return self.SUPABASE_URL_SYNC
+        """Construct the sync database connection URL (for Alembic).
+
+        Priority: SUPABASE_DB_URL_SYNC (Supabase Postgres) > local SQLite.
+        """
+        if self.SUPABASE_DB_URL_SYNC:
+            return self.SUPABASE_DB_URL_SYNC
         return "sqlite:///./ai_surveillance.db"
 
 

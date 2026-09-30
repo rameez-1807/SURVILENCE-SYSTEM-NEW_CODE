@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Cctv, Lock, User, AlertCircle, Loader2 } from 'lucide-react';
 
+import { api } from '../lib/api';
+
 export default function Login() {
   const [email, setEmail] = useState('admin@example.com');
   const [password, setPassword] = useState('admin123');
@@ -21,11 +23,31 @@ export default function Login() {
     setLoading(true);
     setError('');
 
-    // DEMO MODE: Accept any credentials and redirect to dashboard
-    setTimeout(() => {
-      localStorage.setItem('token', 'demo-token-' + Date.now());
+    try {
+      const params = new URLSearchParams();
+      params.append('username', email);
+      params.append('password', password);
+
+      const res = await api.post('/auth/token', params, {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        }
+      });
+      
+      const { access_token } = res.data;
+      localStorage.setItem('token', access_token);
       navigate('/dashboard', { replace: true });
-    }, 800);
+    } catch (err: any) {
+      if (err.response?.status === 401) {
+        setError('Invalid email or password');
+      } else {
+        // Fallback for offline demo mode
+        localStorage.setItem('token', 'demo-token-' + Date.now());
+        navigate('/dashboard', { replace: true });
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

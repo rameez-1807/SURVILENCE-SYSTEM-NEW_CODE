@@ -936,21 +936,110 @@ class VehicleService:
         sec_info = cls.check_security_status(number_plate)
         detection_details["security_status"] = sec_info
 
-        # Duplicate Prevention: Check if this number plate is already saved in the database
+        # =========================================================================
+        # Location-Wise Evidence Subfolder Creation & Physical File Write
+        # =========================================================================
+        # Location name ko safe folder name me convert karna (e.g., 'Basement B1 Parking' -> 'basement_b1_parking')
+        loc_slug = re.sub(r'[^a-zA-Z0-9_-]', '_', (location_spot or "general").strip().lower())
+        loc_slug = re.sub(r'_+', '_', loc_slug).strip('_')
+
+        base_evidence_dir = Path(__file__).resolve().parents[2] / "storage" / "evidence"
+        clean_vplate = re.sub(r'[^a-zA-Z0-9-]', '', number_plate).upper()
+        location_dir = base_evidence_dir / loc_slug / clean_vplate
+        location_dir.mkdir(parents=True, exist_ok=True)
+
+        # =========================================================================
+        # Client Format: Name/Id_CameraId_Date_Time_VehicleType_VehicleNumber.jpg
+        # =========================================================================
+        now_dt = datetime.now()
+        date_str = now_dt.strftime("%Y%m%d")      # Jaise: 20260928
+        time_str = now_dt.strftime("%H%M%S")      # Jaise: 175314
+
+        # 1. Client Name / ID (Aap yaha fix ID/Name jaise "Client01" ya location_spot use kar sakte hain)
+        client_name_id = re.sub(r'[^a-zA-Z0-9_-]', '', (location_spot or "Client01").replace(" ", "_"))
+
+        # 2. Camera ID (Safe string bina spaces ke)
+        clean_cam_id = re.sub(r'[^a-zA-Z0-9_-]', '', (camera_name or "CAM01").replace(" ", "_"))
+
+        # 3. Vehicle Type & Vehicle Number
+        clean_vtype = (detected_type or "Car").capitalize()
+
+        # Format: Name_CameraId_Date_Time_VehicleType_VehicleNumber.jpg
+        filename_only = f"{client_name_id}_{clean_cam_id}_{date_str}_{time_str}_{clean_vtype}_{clean_vplate}.jpg"
+        evidence_path = location_dir / filename_only
+        
+        # Database me relative path save hoga (jaise: 'apartment_parking/Client01_CAM01_20260928_175314_Car_AP03AJ0367.jpg')
+        evidence_reference_val = f"{loc_slug}/{filename_only}"
+
+        saved_physical_file = False
+        try:
+            if detection_details.get("cropped_plate_base64"):
+                crop_b64 = detection_details["cropped_plate_base64"]
+                if "," in crop_b64:
+                    crop_b64 = crop_b64.split(",", 1)[1]
+                with open(evidence_path, "wb") as f:
+                    f.write(base64.b64decode(crop_b64))
+                saved_physical_file = True
+            elif 'img_bgr' in locals() and img_bgr is not None:
+                cv2.imwrite(str(evidence_path), img_bgr)
+                saved_physical_file = True
+        except Exception as e:
+            logger.warning(f"[ANPR] Could not write location-wise physical evidence file: {e}")
+
+        # Duplicate Prevention: Agar gadi pehle se DB me hai, toh naya snapshot update karein
         existing_query = select(VehicleRecord).where(VehicleRecord.number_plate == number_plate).order_by(desc(VehicleRecord.timestamp)).limit(1)
         existing_res = await db.execute(existing_query)
         existing_record = existing_res.scalar_one_or_none()
 
         if existing_record:
-            # Plate is already saved in database! Do NOT insert duplicate row!
-            msg = f"Vehicle plate '{number_plate}' already exists in database. Duplicate not saved."
-            detection_details["already_saved"] = True
-            return True, existing_record, msg, detection_details
+            now_utc = datetime.now(timezone.utc)
+            # Calculate time difference in seconds since last detection
+            time_diff = (now_utc - existing_record.timestamp).total_seconds()
+            # Agar wahi gadi pichle 20 seconds ke andar hi camera ke samne chal rahi hai (Same Session)
+            if time_diff <= 20:
+                # BEST SNAPSHOT CHECK:
+                # Agar nayi photo ka confidence purani photo se BEHTAR hai, tabhi photo update karo
+                if confidence > existing_record.confidence:
+                    logger.info(f"[ANPR] Upgraded to BETTER snapshot for {number_plate} (Conf: {confidence} > {existing_record.confidence})")
+                    
+                    # Purani low-quality image ko delete karke nayi best photo save karo
+                    if existing_record.evidence_reference:
+                        old_path = base_evidence_dir / existing_record.evidence_reference
+                        if old_path.exists():
+                            try:
+                                old_path.unlink()  # Delete inferior photo
+                            except Exception:
+                                pass
+                    existing_record.confidence = confidence
+                    existing_record.evidence_reference = evidence_reference_val
+                    existing_record.timestamp = now_utc
+                    await db.commit()
+                    await db.refresh(existing_record)
+                    msg = f"Vehicle '{number_plate}' best snapshot upgraded (Confidence: {int(confidence*100)}%)."
+                else:
+                    # Nayi photo inferior/blurred hai, toh nayi physical file ko delete kar do (purani best image safe rahegi)
+                    if evidence_path.exists():
+                        try:
+                            evidence_path.unlink()
+                        except Exception:
+                            pass
+                    msg = f"Vehicle '{number_plate}' already has higher quality snapshot. Inferior frame skipped."
+                detection_details["already_saved"] = True
+                return True, existing_record, msg, detection_details
+            # Agar 20 seconds se zyada ho gaye (Gadi dobara enter hui hai)
+            else:
+                existing_record.confidence = confidence
+                existing_record.evidence_reference = evidence_reference_val
+                existing_record.timestamp = now_utc
+                await db.commit()
+                await db.refresh(existing_record)
+                msg = f"Vehicle '{number_plate}' re-entered at {location_spot}. New session snapshot saved."
+                detection_details["already_saved"] = True
+                return True, existing_record, msg, detection_details                    
 
         detection_details["already_saved"] = False
 
-        # Save permanently to SQLite database
-        evidence_file = f"evidence_{number_plate.lower()}_{int(datetime.now(timezone.utc).timestamp())}.jpg"
+        # Save permanently to database
         record = VehicleRecord(
             id=uuid.uuid4(),
             number_plate=number_plate,
@@ -958,7 +1047,7 @@ class VehicleService:
             confidence=confidence,
             camera_name=camera_name,
             location_spot=location_spot,
-            evidence_reference=evidence_file,
+            evidence_reference=evidence_reference_val,
             timestamp=datetime.now(timezone.utc),
             created_at=datetime.now(timezone.utc)
         )

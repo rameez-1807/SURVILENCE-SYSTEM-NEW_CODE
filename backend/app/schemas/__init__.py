@@ -29,6 +29,11 @@ from app.schemas.detection_zone import (
     DetectionZoneUpdate,
     DetectionZoneResponse,
 )
+from app.schemas.evidence import (
+    EvidenceItemResponse,
+    EvidenceListResponse,
+    SignedUrlResponse,
+)
 
 __all__ = [
     "HealthResponse",
@@ -55,4 +60,7 @@ __all__ = [
     "DetectionZoneCreate",
     "DetectionZoneUpdate",
     "DetectionZoneResponse",
+    "EvidenceItemResponse",
+    "EvidenceListResponse",
+    "SignedUrlResponse",
 ]

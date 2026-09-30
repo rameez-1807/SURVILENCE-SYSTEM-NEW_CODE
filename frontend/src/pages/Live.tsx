@@ -11,7 +11,7 @@ import {
   Activity,
   X
 } from 'lucide-react';
-import { api } from '../lib/api';
+import { api, getWsUrl } from '../lib/api';
 import { cn } from '../utils/cn';
 import { FaceRecognitionModal } from '../components/FaceRecognitionModal';
 
@@ -36,7 +36,7 @@ export default function Live() {
     
     // Connect to WS for live detections
     const token = localStorage.getItem('token') || 'dummy-token';
-    const ws = new WebSocket(`ws://localhost:8000/api/v1/ws?token=${token}`);
+    const ws = new WebSocket(getWsUrl(`/api/v1/ws?token=${token}`));
     
     ws.onmessage = (event) => {
       try {

@@ -55,9 +55,15 @@ export function FaceRegistrationModal({ isOpen, onClose, onSuccess }: FaceRegist
     let isMounted = true;
     const loadModels = async () => {
       try {
-        await faceapi.nets.ssdMobilenetv1.loadFromUri('/models');
-        await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
-        await faceapi.nets.faceRecognitionNet.loadFromUri('/models');
+        if (!faceapi.nets.ssdMobilenetv1.isLoaded) {
+          await faceapi.nets.ssdMobilenetv1.loadFromUri('/models');
+        }
+        if (!faceapi.nets.faceLandmark68Net.isLoaded) {
+          await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
+        }
+        if (!faceapi.nets.faceRecognitionNet.isLoaded) {
+          await faceapi.nets.faceRecognitionNet.loadFromUri('/models');
+        }
         if (isMounted) {
           setModelsLoaded(true);
         }
@@ -68,13 +74,13 @@ export function FaceRegistrationModal({ isOpen, onClose, onSuccess }: FaceRegist
         }
       }
     };
-    if (isOpen && !modelsLoaded) {
+    if (isOpen) {
       loadModels();
     }
     return () => {
       isMounted = false;
     };
-  }, [isOpen, modelsLoaded]);
+  }, [isOpen]);
 
   const stopCamera = useCallback(() => {
     if (animFrameRef.current) {
@@ -91,11 +97,21 @@ export function FaceRegistrationModal({ isOpen, onClose, onSuccess }: FaceRegist
   const startCamera = useCallback(async () => {
     try {
       stopCamera();
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' } 
-      });
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' } 
+        });
+      } catch {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      }
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current?.play().catch(e => console.error("Video play error:", e));
+        };
+        videoRef.current.play().catch(() => {});
       }
       streamRef.current = stream;
 
@@ -111,10 +127,21 @@ export function FaceRegistrationModal({ isOpen, onClose, onSuccess }: FaceRegist
       setStatusMessage('Detecting face...');
     } catch (err) {
       console.error('Error accessing camera:', err);
-      setError('Could not access camera. Please allow webcam permissions.');
+      setError('Could not access camera. Please allow webcam permissions in browser.');
       setStatus('idle');
     }
   }, [stopCamera]);
+
+  // Synchronize video element when stream is ready
+  useEffect(() => {
+    if (isOpen && videoRef.current && streamRef.current && videoRef.current.srcObject !== streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.onloadedmetadata = () => {
+        videoRef.current?.play().catch(e => console.error("Video play error:", e));
+      };
+      videoRef.current.play().catch(() => {});
+    }
+  }, [isOpen]);
 
   // Clean up states when modal closes/opens
   useEffect(() => {
@@ -148,7 +175,18 @@ export function FaceRegistrationModal({ isOpen, onClose, onSuccess }: FaceRegist
       const video = videoRef.current;
       const canvas = canvasRef.current;
 
-      if (!video || !canvas || video.paused || video.ended || video.readyState < 2) {
+      if (!video || !canvas || video.ended) {
+        animFrameRef.current = requestAnimationFrame(detectAndDraw);
+        return;
+      }
+
+      if (video.paused) {
+        video.play().catch(() => {});
+        animFrameRef.current = requestAnimationFrame(detectAndDraw);
+        return;
+      }
+
+      if (video.readyState < 2) {
         animFrameRef.current = requestAnimationFrame(detectAndDraw);
         return;
       }
@@ -170,9 +208,9 @@ export function FaceRegistrationModal({ isOpen, onClose, onSuccess }: FaceRegist
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       try {
-        // Detect all faces for validation
+        // Detect all faces for validation with sensitivity 0.35
         const detections = await faceapi
-          .detectAllFaces(video, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
+          .detectAllFaces(video, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.35 }))
           .withFaceLandmarks()
           .withFaceDescriptors();
 
@@ -196,11 +234,11 @@ export function FaceRegistrationModal({ isOpen, onClose, onSuccess }: FaceRegist
             const singleFace = resizedDetections[0];
             const { x, y, width, height } = singleFace.detection.box;
 
-            // Check if face is too small / too far
-            const minSizeThreshold = Math.min(canvas.width, canvas.height) * 0.22;
+            // Check if face is too small / too far (0.12 threshold)
+            const minSizeThreshold = Math.min(canvas.width, canvas.height) * 0.12;
             if (width < minSizeThreshold || height < minSizeThreshold) {
               setStatus('face_too_far');
-              setStatusMessage('Face too far');
+              setStatusMessage('Face too far - move closer');
               drawGuideBox(ctx, x, y, width, height, '#F59E0B', 'Face Too Far');
             } else {
               setStatus('face_detected');
@@ -220,7 +258,7 @@ export function FaceRegistrationModal({ isOpen, onClose, onSuccess }: FaceRegist
             const singleFace = resizedDetections[0];
             const { x, y, width, height } = singleFace.detection.box;
 
-            const minSizeThreshold = Math.min(canvas.width, canvas.height) * 0.22;
+            const minSizeThreshold = Math.min(canvas.width, canvas.height) * 0.10;
             if (width < minSizeThreshold || height < minSizeThreshold) {
               setStatus('face_too_far');
               setStatusMessage('Face too far - Move closer');
@@ -236,9 +274,9 @@ export function FaceRegistrationModal({ isOpen, onClose, onSuccess }: FaceRegist
               // Draw animated laser scan line
               drawLaserScanLine(ctx, x, y, width, height);
 
-              // Collect sample frame every 250ms
+              // Collect sample frame every 200ms
               const now = Date.now();
-              if (now - lastSampleTime > 250) {
+              if (now - lastSampleTime > 200) {
                 lastSampleTime = now;
                 samplesRef.current.push(singleFace.descriptor);
                 setSamplesCount(samplesRef.current.length);
@@ -384,7 +422,7 @@ export function FaceRegistrationModal({ isOpen, onClose, onSuccess }: FaceRegist
 
   // Start 360 Multi-sample Scan process
   const startScanning = () => {
-    if (!modelsLoaded || status === 'no_face' || status === 'multiple_faces' || status === 'face_too_far') {
+    if (!modelsLoaded || status === 'no_face' || status === 'multiple_faces') {
       return;
     }
     setError(null);
@@ -676,8 +714,8 @@ export function FaceRegistrationModal({ isOpen, onClose, onSuccess }: FaceRegist
                   ) : (
                     <button 
                       onClick={startScanning}
-                      disabled={!modelsLoaded || isScanningRef.current || status === 'no_face' || status === 'multiple_faces' || status === 'face_too_far'}
-                      className="flex items-center gap-2 bg-primary hover:bg-primary-hover disabled:opacity-50 text-white px-5 py-2 rounded-lg font-medium text-xs shadow-md transition-all disabled:cursor-not-allowed"
+                      disabled={!modelsLoaded || isScanningRef.current || status === 'no_face' || status === 'multiple_faces'}
+                      className="flex items-center gap-2 bg-primary hover:bg-primary-hover disabled:opacity-50 text-white px-5 py-2 rounded-lg font-medium text-xs shadow-md transition-all disabled:cursor-not-allowed cursor-pointer"
                     >
                       {isScanningRef.current ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
                       {isScanningRef.current ? 'Scanning...' : 'Start 360 Scan'}

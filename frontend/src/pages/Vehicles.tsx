@@ -1,13 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { 
-  Search, 
-  Filter, 
-  Car, 
-  Activity, 
-  Video, 
+import {
+  Search,
+  Filter,
+  Car,
+  Activity,
+  Video,
   Download,
   Upload,
-  Sparkles,
   CheckCircle2,
   RefreshCw,
   Eye,
@@ -24,9 +23,11 @@ import {
   Volume2,
   VolumeX,
   Database,
-  Trash2
+  Trash2,
+  Info,
+  Calendar,
+  RotateCcw
 } from 'lucide-react';
-import Tesseract from 'tesseract.js';
 import { api } from '../lib/api';
 import { cn } from '../utils/cn';
 
@@ -86,6 +87,7 @@ export default function Vehicles() {
 
   // Quick Plate Input Bar State
   const [quickPlateInput, setQuickPlateInput] = useState('');
+  const [quickVehicleType, setQuickVehicleType] = useState('car');
 
   // Selected Location Spot for Live Scan
   const [selectedLocationSpot, setSelectedLocationSpot] = useState('Apartment Parking');
@@ -97,19 +99,46 @@ export default function Vehicles() {
   const [locationFilter, setLocationFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState('');
 
+  const hasActiveFilters = Boolean(
+    search.trim() !== '' ||
+    typeFilter !== 'all' ||
+    cameraFilter !== 'all' ||
+    locationFilter !== 'all' ||
+    dateFilter !== ''
+  );
+
+  const resetAllFilters = () => {
+    setSearch('');
+    setTypeFilter('all');
+    setCameraFilter('all');
+    setLocationFilter('all');
+    setDateFilter('');
+  };
+
   // Photo Upload State
   const [selectedImageB64, setSelectedImageB64] = useState<string | null>(null);
-  const [scanMessage, setScanMessage] = useState<{ type: 'success' | 'error' | 'warning'; text: string } | null>(null);
+  const [scanMessage, setScanMessage] = useState<{ type: 'success' | 'error' | 'warning' | 'info'; text: string } | null>(null);
 
   // Live Camera Scanner State
-  const [isCameraActive, setIsCameraActive] = useState(true);
-  const [cameraSourceMode, setCameraSourceMode] = useState<'webcam' | 'simulated'>('simulated');
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  const [cameraSourceMode, setCameraSourceMode] = useState<'webcam' | 'simulated'>('webcam');
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([]);
+  const [selectedCameraId, setSelectedCameraId] = useState<string>('');
+
+  // Continuous Live Auto-Scan & Plate Highlighting State
+  const [autoScanActive, setAutoScanActive] = useState(true);
+  const [liveBoundingBox, setLiveBoundingBox] = useState<number[] | null>(null); // [normX, normY, normW, normH] in %
+  const [liveDetectTag, setLiveDetectTag] = useState<string | null>(null);
+  const [isLiveScanningFrame, setIsLiveScanningFrame] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasSimRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const simAnimFrameRef = useRef<number | null>(null);
+  const isAutoScanningRef = useRef(false);
+  const recentScansRef = useRef<{ [plate: string]: number }>({});
+  const boxClearTimerRef = useRef<any>(null);
 
   const simVehicleStateRef = useRef({
     x: -250,
@@ -130,7 +159,7 @@ export default function Vehicles() {
     try {
       setLoading(true);
       setError(null);
-      
+
       const params: any = {};
       if (search) params.search = search;
       if (typeFilter !== 'all') params.vehicle_type = typeFilter;
@@ -185,37 +214,85 @@ export default function Vehicles() {
     }
   };
 
-  // Start Hardware Webcam Stream
-  const startCameraStream = async () => {
+  // Enumerate Connected Cameras
+  const getCameraDevices = async () => {
+    try {
+      if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(d => d.kind === 'videoinput');
+        setAvailableCameras(videoDevices);
+        if (videoDevices.length > 0 && !selectedCameraId) {
+          setSelectedCameraId(videoDevices[0].deviceId);
+        }
+      }
+    } catch (e) {
+      console.warn("Could not enumerate camera devices:", e);
+    }
+  };
+
+  // Start Hardware Webcam Stream (Resilient Multi-Fallback)
+  const startCameraStream = async (targetDeviceId?: string) => {
     try {
       setCameraError(null);
       stopCameraStream();
 
-      const constraints = {
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          facingMode: 'environment'
-        }
-      };
+      const devId = targetDeviceId || selectedCameraId;
+      let stream: MediaStream | null = null;
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      // Attempt 1: Specific device or standard 720p resolution
+      try {
+        const constraints: MediaStreamConstraints = {
+          video: devId
+            ? { deviceId: { exact: devId } }
+            : { width: { ideal: 1280 }, height: { ideal: 720 } }
+        };
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (e1) {
+        console.warn("Camera ideal resolution failed, attempting basic video constraint:", e1);
+        // Attempt 2: Basic fallback without strict constraints
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        } catch (e2) {
+          throw e2;
+        }
+      }
+
+      if (!stream) {
+        throw new Error("Unable to obtain video stream from webcam.");
+      }
+
       streamRef.current = stream;
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.onloadedmetadata = () => {
-          videoRef.current?.play().catch(e => console.error("Play error:", e));
+          videoRef.current?.play().catch(e => console.error("Video play error:", e));
         };
+        videoRef.current.play().catch(() => { });
       }
 
       setIsCameraActive(true);
       setCameraSourceMode('webcam');
+      setCameraError(null);
+
+      // Re-enumerate to get friendly labels now that permissions are granted
+      setTimeout(() => {
+        getCameraDevices();
+      }, 500);
     } catch (err: any) {
-      console.warn("Webcam access error, falling back to simulated CCTV:", err);
-      setCameraError("Webcam unavailable. Switch to Gate CCTV Stream mode.");
-      setCameraSourceMode('simulated');
-      setIsCameraActive(true);
+      console.error("Webcam access error:", err);
+      let errorMsg = "Webcam unavailable. Please check camera permissions.";
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        errorMsg = "Camera permission was denied. Please click the 🔒 lock icon in browser URL bar to allow Camera.";
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        errorMsg = "No webcam detected on this PC. Connect a USB camera or switch to Gate CCTV Stream.";
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        errorMsg = "Camera is currently in use by another app (Zoom/Teams/Browser). Close it and retry.";
+      } else if (err.message) {
+        errorMsg = err.message;
+      }
+      setCameraError(errorMsg);
+      setIsCameraActive(false);
     }
   };
 
@@ -229,6 +306,15 @@ export default function Vehicles() {
       videoRef.current.srcObject = null;
     }
   };
+
+  // Auto-start camera when in webcam mode on initial load
+  useEffect(() => {
+    getCameraDevices();
+    startCameraStream();
+    return () => {
+      stopCameraStream();
+    };
+  }, []);
 
   // Live Animated Gate Camera Stream Canvas Renderer
   useEffect(() => {
@@ -343,6 +429,38 @@ export default function Vehicles() {
           state.pauseTimer = 75;
           state.scanned = true;
           state.gateOpen = true;
+
+          if (autoScanActive) {
+            // Show live bounding box and tag over the simulated car
+            setLiveBoundingBox([36, 50, 26, 16]);
+            setLiveDetectTag(`${state.plate} • ${state.type.toUpperCase()}`);
+            if (boxClearTimerRef.current) clearTimeout(boxClearTimerRef.current);
+            boxClearTimerRef.current = setTimeout(() => {
+              setLiveBoundingBox(null);
+              setLiveDetectTag(null);
+            }, 3500);
+
+            // Auto-save simulated gate camera vehicle to DB and announce
+            api.post('/vehicles/scan', {
+              manual_plate: state.plate,
+              vehicle_type: state.type,
+              camera_name: 'Gate CCTV Stream',
+              location_spot: selectedLocationSpot,
+              is_live_stream: true
+            }).then(res => {
+              if (res.data?.success && res.data.record) {
+                const rec: VehicleRecord = res.data.record;
+                setLastScannedPlate(rec);
+                const vEmoji = rec.vehicle_type === 'truck' ? '🚚 Truck' : rec.vehicle_type === 'bus' ? '🚌 Bus' : rec.vehicle_type === 'motorcycle' ? '🏍️ Bike' : '🚗 Car';
+                setScanMessage({
+                  type: 'success',
+                  text: `✓ Live Auto-Detected: Plate ${rec.number_plate} (${vEmoji}) at Gate CCTV!`
+                });
+                announceScannedPlate(rec.number_plate);
+                fetchData();
+              }
+            }).catch(() => {});
+          }
         }
 
         if (state.x > w + 100) {
@@ -424,7 +542,126 @@ export default function Vehicles() {
       isActiveLoop = false;
       if (animId) cancelAnimationFrame(animId);
     };
-  }, [isCameraActive, cameraSourceMode, scanMode, selectedLocationSpot]);
+  }, [isCameraActive, cameraSourceMode, scanMode, selectedLocationSpot, autoScanActive]);
+
+  // Continuous Live Auto-Scan Loop for Live Webcam
+  useEffect(() => {
+    if (!isCameraActive || !autoScanActive || scanMode !== 'camera') {
+      setLiveBoundingBox(null);
+      setLiveDetectTag(null);
+      setIsLiveScanningFrame(false);
+      return;
+    }
+
+    const intervalId = setInterval(async () => {
+      if (isAutoScanningRef.current || isScanning) return;
+      if (cameraSourceMode !== 'webcam') return;
+      if (!videoRef.current || videoRef.current.readyState < 2) return;
+
+      try {
+        isAutoScanningRef.current = true;
+        setIsLiveScanningFrame(true);
+
+        const video = videoRef.current;
+        const vW = video.videoWidth || 640;
+        const vH = video.videoHeight || 480;
+
+        // Fast optimized frame capture for rapid real-time ANPR (480px max dim, 0.70 quality)
+        const maxDim = 480;
+        const scale = Math.min(1, maxDim / Math.max(vW, vH));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(vW * scale);
+        canvas.height = Math.round(vH * scale);
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const frameB64 = canvas.toDataURL('image/jpeg', 0.70);
+
+        const res = await api.post('/vehicles/scan', {
+          image_base64: frameB64,
+          camera_name: 'Live ANPR Camera',
+          location_spot: selectedLocationSpot,
+          is_live_stream: true
+        });
+
+        if (res.data.success && res.data.record) {
+          const rec: VehicleRecord = res.data.record;
+          // Strictly ensure full plate format (8, 9, or 10 characters) before displaying/saving
+          if (![8, 9, 10].includes(rec.number_plate.length)) {
+            return;
+          }
+          const now = Date.now();
+          const lastScannedTime = recentScansRef.current[rec.number_plate] || 0;
+          const isFresh = (now - lastScannedTime) > 15000; // 15s cooldown per unique plate
+
+          setLastScannedPlate(rec);
+
+          // Calculate normalized bounding box percentage for visual overlay
+          if (res.data.bounding_box) {
+            const [bx1, by1, bx2, by2] = res.data.bounding_box;
+            const normX = Math.max(0, (bx1 / canvas.width) * 100);
+            const normY = Math.max(0, (by1 / canvas.height) * 100);
+            const normW = Math.min(100 - normX, Math.max(12, ((bx2 - bx1) / canvas.width) * 100));
+            const normH = Math.min(100 - normY, Math.max(8, ((by2 - by1) / canvas.height) * 100));
+            setLiveBoundingBox([normX, normY, normW, normH]);
+          } else {
+            setLiveBoundingBox([28, 38, 44, 24]);
+          }
+
+          const secStatus = res.data.security_status;
+          const consensusInfo = res.data.consensus_frames ? ` • ${res.data.consensus_frames}f Consensus` : '';
+          const categoryTag = secStatus?.category ? ` [${secStatus.category}]` : '';
+          setLiveDetectTag(`${rec.number_plate}${categoryTag} • ${rec.vehicle_type.toUpperCase()}${consensusInfo}`);
+
+          if (boxClearTimerRef.current) clearTimeout(boxClearTimerRef.current);
+          boxClearTimerRef.current = setTimeout(() => {
+            setLiveBoundingBox(null);
+            setLiveDetectTag(null);
+          }, 3500);
+
+          if (isFresh) {
+            recentScansRef.current[rec.number_plate] = now;
+            const vEmoji = rec.vehicle_type === 'truck' ? '🚚 Truck' : rec.vehicle_type === 'bus' ? '🚌 Bus' : rec.vehicle_type === 'motorcycle' ? '🏍️ Bike' : rec.vehicle_type === 'bicycle' ? '🚲 Bicycle' : '🚗 Car';
+            if (secStatus?.is_blacklisted) {
+              setScanMessage({
+                type: 'error',
+                text: `🚨 SECURITY ALERT: Plate ${rec.number_plate} is BLACKLISTED! Barrier Locked.`
+              });
+              announceScannedPlate(`Alert! Blacklisted vehicle ${rec.number_plate}`);
+              await fetchData();
+            } else if (secStatus?.barrier_action === 'OPEN') {
+              setScanMessage({
+                type: 'success',
+                text: `✅ [BARRIER AUTO-OPENED] ${secStatus.category} Vehicle: Plate ${rec.number_plate} (${vEmoji}) at [${rec.location_spot}]!`
+              });
+              announceScannedPlate(`Access granted for ${rec.number_plate}`);
+              await fetchData();
+            } else if (res.data.already_saved) {
+              setScanMessage({
+                type: 'info',
+                text: `ℹ️ Plate ${rec.number_plate} (${vEmoji}) is already registered in system. Duplicate not saved.`
+              });
+            } else {
+              setScanMessage({
+                type: 'success',
+                text: `✓ Live Auto-Detected: Plate ${rec.number_plate} (${vEmoji}) saved at [${rec.location_spot}]!`
+              });
+              announceScannedPlate(rec.number_plate);
+              await fetchData();
+            }
+          }
+        }
+      } catch (err) {
+        // quiet loop background error
+      } finally {
+        isAutoScanningRef.current = false;
+        setIsLiveScanningFrame(false);
+      }
+    }, 350);
+
+    return () => clearInterval(intervalId);
+  }, [isCameraActive, autoScanActive, scanMode, cameraSourceMode, selectedLocationSpot]);
 
   // Image File Upload ANPR Reader
   const handleImageFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -439,29 +676,55 @@ export default function Vehicles() {
       reader.onloadend = async () => {
         const base64Data = reader.result as string;
         setSelectedImageB64(base64Data);
+        setOcrProgress("Running AI Plate Detection (best.pt + OCR)...");
 
-        // Run OCR
-        const { plate } = await extractLicensePlateOCR(base64Data);
-        const finalPlate = plate || 'JH03MF4477';
-
-        // Call backend API
-        const res = await api.post('/vehicles/scan', {
-          image_base64: base64Data,
-          manual_plate: finalPlate,
-          vehicle_type: 'car',
-          camera_name: 'ANPR File Scanner',
-          location_spot: selectedLocationSpot
-        });
-
-        if (res.data.success && res.data.record) {
-          const newRecord: VehicleRecord = res.data.record;
-          setLastScannedPlate(newRecord);
-          setScanMessage({
-            type: 'success',
-            text: `✓ Plate ${newRecord.number_plate} scanned from image & saved to database!`
+        try {
+          // Call backend AI dual-model directly with image (YOLO best.pt plate detector + YOLOv8n vehicle classifier)
+          const res = await api.post('/vehicles/scan', {
+            image_base64: base64Data,
+            camera_name: 'ANPR File Scanner',
+            location_spot: selectedLocationSpot
           });
-          announceScannedPlate(newRecord.number_plate);
-          await fetchData();
+
+          if (res.data.success && res.data.record) {
+            const newRecord: VehicleRecord = res.data.record;
+            if (![8, 9, 10].includes(newRecord.number_plate.length)) {
+              setScanMessage({
+                type: 'error',
+                text: `Incomplete plate format detected (${newRecord.number_plate}). Full 8, 9, or 10 characters required.`
+              });
+              return;
+            }
+            setLastScannedPlate(newRecord);
+            const vEmoji = newRecord.vehicle_type === 'truck' ? '🚚 Truck' : newRecord.vehicle_type === 'bus' ? '🚌 Bus' : newRecord.vehicle_type === 'motorcycle' ? '🏍️ Motorcycle' : newRecord.vehicle_type === 'bicycle' ? '🚲 Bicycle' : '🚗 Car';
+            if (res.data.already_saved) {
+              setScanMessage({
+                type: 'info',
+                text: `ℹ️ Plate ${newRecord.number_plate} (${vEmoji}) is already registered in database. Duplicate not saved.`
+              });
+            } else {
+              setScanMessage({
+                type: 'success',
+                text: `✓ Plate ${newRecord.number_plate} (${vEmoji}) detected with ${Math.round((res.data.confidence || 0.95) * 100)}% accuracy & saved to DB!`
+              });
+              announceScannedPlate(newRecord.number_plate);
+              await fetchData();
+            }
+          } else {
+            setScanMessage({
+              type: 'error',
+              text: res.data.message || 'No license plate detected in uploaded image.'
+            });
+          }
+        } catch (apiErr: any) {
+          console.error("Backend ANPR scan error:", apiErr);
+          setScanMessage({
+            type: 'error',
+            text: apiErr.response?.data?.detail || 'Failed to process license plate on server.'
+          });
+        } finally {
+          setOcrProgress(null);
+          setIsScanning(false);
         }
       };
       reader.readAsDataURL(file);
@@ -471,72 +734,7 @@ export default function Vehicles() {
         type: 'error',
         text: 'Failed to process license plate from image.'
       });
-    } finally {
       setIsScanning(false);
-    }
-  };
-
-  // Helper: Preprocess canvas for Tesseract OCR
-  const preprocessCanvasForOCR = (sourceCanvas: HTMLCanvasElement): HTMLCanvasElement => {
-    const canvas = document.createElement('canvas');
-    canvas.width = sourceCanvas.width;
-    canvas.height = sourceCanvas.height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return sourceCanvas;
-
-    ctx.drawImage(sourceCanvas, 0, 0);
-    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = imgData.data;
-
-    const contrast = 1.3;
-    for (let i = 0; i < data.length; i += 4) {
-      const avg = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-      const val = Math.min(255, Math.max(0, (avg - 128) * contrast + 128));
-      data[i] = val;
-      data[i + 1] = val;
-      data[i + 2] = val;
-    }
-
-    ctx.putImageData(imgData, 0, 0);
-    return canvas;
-  };
-
-  // Helper: Perform OCR extraction
-  const extractLicensePlateOCR = async (imageSource: string | HTMLCanvasElement): Promise<{ plate: string | null; confidence: number }> => {
-    try {
-      setOcrProgress("Running ANPR OCR...");
-      let targetSource = imageSource;
-      if (typeof imageSource !== 'string' && imageSource instanceof HTMLCanvasElement) {
-        targetSource = preprocessCanvasForOCR(imageSource);
-      }
-
-      const result = await Tesseract.recognize(targetSource, 'eng', {
-        logger: (m) => {
-          if (m.status === 'recognizing text') {
-            setOcrProgress(`Scanning (${Math.round(m.progress * 100)}%)`);
-          }
-        }
-      });
-
-      const rawText = result.data.text.toUpperCase();
-      const cleaned = rawText.replace(/[^A-Z0-9\s-]/g, '');
-      const indianMatch = cleaned.match(/([A-Z]{2}\s*[-.]?\s*\d{1,2}\s*[-.]?\s*[A-Z]{1,3}\s*[-.]?\s*\d{3,4})/);
-      
-      if (indianMatch) {
-        const formatted = indianMatch[1].replace(/[\s-.]/g, '');
-        return { plate: formatted, confidence: (result.data.confidence || 85) / 100 };
-      }
-
-      const fallbackMatch = cleaned.match(/([A-Z0-9]{7,10})/);
-      if (fallbackMatch) {
-        return { plate: fallbackMatch[1], confidence: 0.75 };
-      }
-
-      return { plate: null, confidence: 0.5 };
-    } catch (e) {
-      console.warn("Tesseract OCR fallback warning:", e);
-      return { plate: null, confidence: 0.5 };
-    } finally {
       setOcrProgress(null);
     }
   };
@@ -548,40 +746,85 @@ export default function Vehicles() {
       setIsScanning(true);
       setScanMessage(null);
 
-      let extractedPlate: string | null = null;
-
-      if (cameraSourceMode === 'webcam' && videoRef.current) {
-        const canvas = document.createElement('canvas');
-        canvas.width = videoRef.current.videoWidth || 640;
-        canvas.height = videoRef.current.videoHeight || 480;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-          const res = await extractLicensePlateOCR(canvas);
-          extractedPlate = res.plate;
-        }
-      } else if (canvasSimRef.current) {
-        extractedPlate = simVehicleStateRef.current.plate;
+      if (cameraSourceMode !== 'webcam' || !videoRef.current) {
+        setScanMessage({
+          type: 'warning',
+          text: 'Please select Live Webcam or use Photo Upload to scan real vehicles.'
+        });
+        setIsScanning(false);
+        return;
       }
 
-      const plateToSave = extractedPlate || 'JH03MF4477';
+      const canvas = document.createElement('canvas');
+      canvas.width = videoRef.current.videoWidth || 640;
+      canvas.height = videoRef.current.videoHeight || 480;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        setIsScanning(false);
+        return;
+      }
+      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+      const frameB64 = canvas.toDataURL('image/jpeg', 0.85);
 
-      const res = await api.post('/vehicles/scan', {
-        manual_plate: plateToSave,
-        vehicle_type: 'car',
-        camera_name: cameraSourceMode === 'webcam' ? 'Live ANPR Camera' : 'Gate CCTV Stream',
-        location_spot: selectedLocationSpot
-      });
+      const scanPayload = {
+        camera_name: 'Live ANPR Camera',
+        location_spot: selectedLocationSpot,
+        image_base64: frameB64
+      };
+
+      const res = await api.post('/vehicles/scan', scanPayload);
 
       if (res.data.success && res.data.record) {
         const newRecord: VehicleRecord = res.data.record;
+        if (![8, 9, 10].includes(newRecord.number_plate.length)) {
+          setScanMessage({
+            type: 'error',
+            text: `Incomplete plate format detected (${newRecord.number_plate}). Full 8, 9, or 10 characters required.`
+          });
+          return;
+        }
         setLastScannedPlate(newRecord);
+
+        // Highlight detected bounding box on live video
+        if (res.data.bounding_box && videoRef.current) {
+          const [bx1, by1, bx2, by2] = res.data.bounding_box;
+          const vW = videoRef.current.videoWidth || 640;
+          const vH = videoRef.current.videoHeight || 480;
+          const normX = Math.max(0, (bx1 / vW) * 100);
+          const normY = Math.max(0, (by1 / vH) * 100);
+          const normW = Math.min(100 - normX, Math.max(12, ((bx2 - bx1) / vW) * 100));
+          const normH = Math.min(100 - normY, Math.max(8, ((by2 - by1) / vH) * 100));
+          setLiveBoundingBox([normX, normY, normW, normH]);
+        } else {
+          setLiveBoundingBox([28, 38, 44, 24]);
+        }
+        setLiveDetectTag(`${newRecord.number_plate} • ${newRecord.vehicle_type.toUpperCase()}`);
+
+        if (boxClearTimerRef.current) clearTimeout(boxClearTimerRef.current);
+        boxClearTimerRef.current = setTimeout(() => {
+          setLiveBoundingBox(null);
+          setLiveDetectTag(null);
+        }, 4000);
+
+        const vEmoji = newRecord.vehicle_type === 'truck' ? '🚚 Truck' : newRecord.vehicle_type === 'bus' ? '🚌 Bus' : newRecord.vehicle_type === 'motorcycle' ? '🏍️ Motorcycle' : newRecord.vehicle_type === 'bicycle' ? '🚲 Bicycle' : '🚗 Car';
+        if (res.data.already_saved) {
+          setScanMessage({
+            type: 'info',
+            text: `ℹ️ Plate ${newRecord.number_plate} (${vEmoji}) is already registered in database. Duplicate not saved.`
+          });
+        } else {
+          setScanMessage({
+            type: 'success',
+            text: `✓ Plate ${newRecord.number_plate} (${vEmoji}) scanned at [${newRecord.location_spot}] & saved to database!`
+          });
+          announceScannedPlate(newRecord.number_plate);
+          await fetchData();
+        }
+      } else {
         setScanMessage({
-          type: 'success',
-          text: `✓ Plate ${newRecord.number_plate} scanned at [${newRecord.location_spot}] & saved to database!`
+          type: 'error',
+          text: res.data.message || 'No license plate detected in camera frame.'
         });
-        announceScannedPlate(newRecord.number_plate);
-        await fetchData();
       }
     } catch (err: any) {
       console.error("Frame scan failed:", err);
@@ -596,7 +839,14 @@ export default function Vehicles() {
 
   // Quick Scan Direct Number Plate Action
   const handleQuickPlateScan = async () => {
-    const targetPlate = quickPlateInput.trim() || 'JH03MF4477';
+    const targetPlate = quickPlateInput.trim();
+    if (!targetPlate) {
+      setScanMessage({
+        type: 'warning',
+        text: 'Please enter a vehicle license plate number.'
+      });
+      return;
+    }
 
     try {
       setIsScanning(true);
@@ -604,7 +854,7 @@ export default function Vehicles() {
 
       const res = await api.post('/vehicles/scan', {
         manual_plate: targetPlate,
-        vehicle_type: 'car',
+        vehicle_type: quickVehicleType,
         camera_name: 'ANPR Quick Register',
         location_spot: selectedLocationSpot
       });
@@ -613,9 +863,10 @@ export default function Vehicles() {
         const newRecord: VehicleRecord = res.data.record;
         setLastScannedPlate(newRecord);
         setQuickPlateInput('');
+        const vEmoji = newRecord.vehicle_type === 'truck' ? '🚚 Truck' : newRecord.vehicle_type === 'bus' ? '🚌 Bus' : newRecord.vehicle_type === 'motorcycle' ? '🏍️ Motorcycle' : newRecord.vehicle_type === 'bicycle' ? '🚲 Bicycle' : '🚗 Car';
         setScanMessage({
           type: 'success',
-          text: `✓ License Plate ${newRecord.number_plate} saved to database at ${newRecord.location_spot}!`
+          text: `✓ License Plate ${newRecord.number_plate} (${vEmoji}) saved to database at ${newRecord.location_spot}!`
         });
         announceScannedPlate(newRecord.number_plate);
         await fetchData();
@@ -626,39 +877,6 @@ export default function Vehicles() {
         type: 'error',
         text: err.response?.data?.detail || 'Failed to scan license plate.'
       });
-    } finally {
-      setIsScanning(false);
-    }
-  };
-
-  // Demo vehicle scan trigger
-  const handleSimulateVehicleScan = async () => {
-    const samplePlates = ['JH03MF4477', 'GJ65AB6269', 'MH12AB1234', 'DL08CA9999', 'KA05MX1234', 'UP16BT4321', 'HR26DQ5555'];
-    const randomPlate = samplePlates[Math.floor(Math.random() * samplePlates.length)];
-    
-    try {
-      setIsScanning(true);
-      setScanMessage(null);
-
-      const res = await api.post('/vehicles/scan', {
-        manual_plate: randomPlate,
-        vehicle_type: 'car',
-        camera_name: 'Live ANPR Camera',
-        location_spot: selectedLocationSpot
-      });
-
-      if (res.data.success && res.data.record) {
-        const newRecord: VehicleRecord = res.data.record;
-        setLastScannedPlate(newRecord);
-        setScanMessage({
-          type: 'success',
-          text: `✓ [SIMULATED PASS] Plate ${newRecord.number_plate} scanned at [${newRecord.location_spot}] & saved to database!`
-        });
-        announceScannedPlate(newRecord.number_plate);
-        await fetchData();
-      }
-    } catch (err: any) {
-      console.error("Simulated scan failed:", err);
     } finally {
       setIsScanning(false);
     }
@@ -714,7 +932,7 @@ export default function Vehicles() {
 
   return (
     <div className="space-y-6 flex flex-col min-h-0 flex-1 animate-fade-in pb-8">
-      
+
       {/* Top Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-4">
         <div>
@@ -732,8 +950,8 @@ export default function Vehicles() {
             onClick={handleToggleVoice}
             className={cn(
               "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-xs border cursor-pointer select-none",
-              voiceEnabled 
-                ? "bg-primary/10 border-primary/30 text-primary hover:bg-primary/20" 
+              voiceEnabled
+                ? "bg-primary/10 border-primary/30 text-primary hover:bg-primary/20"
                 : "bg-surface-hover border-border text-text-muted hover:text-text"
             )}
             title={voiceEnabled ? "Click to Turn Voice Announcement OFF" : "Click to Turn Voice Announcement ON"}
@@ -753,15 +971,15 @@ export default function Vehicles() {
           <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl text-xs font-bold shadow-xs">
             <Database className="w-4 h-4" /> Auto-Save to DB Active
           </div>
-          <button 
+          <button
             onClick={handleExportCSV}
             className="flex items-center gap-2 px-3.5 py-1.5 bg-background border border-border hover:bg-surface-hover text-text rounded-xl text-xs font-bold transition-colors shadow-xs"
           >
             <Download className="w-4 h-4" /> Export Report
           </button>
-          
+
           {vehicles.length > 0 && (
-            <button 
+            <button
               onClick={handleClearAllHistory}
               className="flex items-center gap-1.5 px-3.5 py-1.5 bg-danger/10 hover:bg-danger/20 text-danger border border-danger/30 rounded-xl text-xs font-bold transition-colors shadow-xs"
               title="Clear all vehicle history records from database"
@@ -776,13 +994,16 @@ export default function Vehicles() {
       {scanMessage && (
         <div className={cn(
           "px-4 py-3 rounded-xl border text-xs font-medium flex items-center justify-between transition-all shadow-md animate-slide-up",
-          scanMessage.type === 'success' ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400" : 
-          scanMessage.type === 'warning' ? "bg-amber-500/15 border-amber-500/40 text-amber-300" : 
-          "bg-danger/15 border-danger/40 text-danger"
+          scanMessage.type === 'success' ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400" :
+            scanMessage.type === 'info' ? "bg-sky-500/15 border-sky-500/40 text-sky-300" :
+              scanMessage.type === 'warning' ? "bg-amber-500/15 border-amber-500/40 text-amber-300" :
+                "bg-danger/15 border-danger/40 text-danger"
         )}>
           <div className="flex items-center gap-2.5">
             {scanMessage.type === 'success' ? (
               <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-400" />
+            ) : scanMessage.type === 'info' ? (
+              <Info className="w-5 h-5 shrink-0 text-sky-400" />
             ) : (
               <AlertTriangle className="w-5 h-5 shrink-0 text-amber-400" />
             )}
@@ -796,13 +1017,13 @@ export default function Vehicles() {
 
       {/* Main Grid Layout (Left: Live Scanner & Stats • Right: Real-time Side-by-Side Database History) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 min-h-0 flex-1">
-        
+
         {/* Left Column (lg:col-span-1): Live ANPR Scanner & Summary Stats */}
         <div className="lg:col-span-1 flex flex-col gap-6 overflow-y-auto pr-1">
-          
+
           {/* ANPR Scanner Card */}
           <div className="bg-surface border border-border rounded-2xl overflow-hidden flex flex-col shadow-sm">
-            
+
             {/* Scanner Tabs Header */}
             <div className="p-3.5 border-b border-border bg-surface-hover/30 flex items-center justify-between gap-2">
               <div className="flex bg-background border border-border p-1 rounded-xl">
@@ -856,9 +1077,9 @@ export default function Vehicles() {
               </div>
 
               {scanMode === 'camera' && (
-                <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/40">
-                  <span className="text-text-muted font-semibold">Feed Mode:</span>
+                <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/40 flex-wrap">
                   <div className="flex items-center gap-1">
+                    <span className="text-text-muted font-semibold text-[11px]">Feed:</span>
                     <button
                       onClick={() => { setCameraSourceMode('webcam'); startCameraStream(); }}
                       className={cn(
@@ -875,9 +1096,41 @@ export default function Vehicles() {
                         cameraSourceMode === 'simulated' ? "bg-amber-600 text-white shadow-xs" : "bg-surface text-text-muted hover:text-text"
                       )}
                     >
-                      <Video className="w-3 h-3" /> Gate CCTV Stream
+                      <Video className="w-3 h-3" /> Gate CCTV
                     </button>
+
+                    {availableCameras.length > 1 && cameraSourceMode === 'webcam' && (
+                      <select
+                        value={selectedCameraId}
+                        onChange={(e) => {
+                          setSelectedCameraId(e.target.value);
+                          startCameraStream(e.target.value);
+                        }}
+                        className="bg-surface border border-border rounded-md px-1.5 py-1 text-[10px] text-text font-semibold focus:outline-none"
+                      >
+                        {availableCameras.map((cam, idx) => (
+                          <option key={cam.deviceId || idx} value={cam.deviceId}>
+                            {cam.label || `Cam ${idx + 1}`}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
+
+                  {/* Auto-Scan ON/OFF Switch */}
+                  <button
+                    onClick={() => setAutoScanActive(prev => !prev)}
+                    className={cn(
+                      "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold transition-all border cursor-pointer select-none",
+                      autoScanActive
+                        ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/25 shadow-xs"
+                        : "bg-surface border-border text-text-muted hover:text-text"
+                    )}
+                    title={autoScanActive ? "Auto-Scanning is ON - click to pause" : "Auto-Scanning is OFF - click to enable"}
+                  >
+                    <span className={cn("w-2 h-2 rounded-full", autoScanActive ? "bg-emerald-400 animate-ping" : "bg-text-muted/40")} />
+                    <span>Auto-Scan: {autoScanActive ? "ON" : "PAUSED"}</span>
+                  </button>
                 </div>
               )}
             </div>
@@ -920,14 +1173,40 @@ export default function Vehicles() {
                     </div>
                   )}
 
+                  {/* Dynamic Live Detected Plate Bounding Box Highlight */}
+                  {liveBoundingBox && isCameraActive && (
+                    <div
+                      className="absolute z-30 pointer-events-none border-2 border-emerald-400 bg-emerald-500/20 rounded-lg shadow-lg shadow-emerald-500/50 animate-pulse transition-all duration-300"
+                      style={{
+                        left: `${liveBoundingBox[0]}%`,
+                        top: `${liveBoundingBox[1]}%`,
+                        width: `${liveBoundingBox[2]}%`,
+                        height: `${liveBoundingBox[3]}%`
+                      }}
+                    >
+                      <div className="absolute -top-7 left-0 bg-emerald-600 border border-emerald-300 text-white font-mono text-[11px] font-black px-2 py-0.5 rounded shadow-md whitespace-nowrap flex items-center gap-1.5 animate-bounce">
+                        <Zap className="w-3 h-3 text-amber-300 animate-pulse" />
+                        {liveDetectTag}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Laser Scan Reticle Overlay */}
                   {isCameraActive && (
                     <div className="absolute inset-0 pointer-events-none z-10 flex flex-col items-center justify-between p-3">
                       <div className="w-full flex items-center justify-between gap-2">
-                        <span className="bg-black/80 backdrop-blur-md px-2.5 py-1 rounded-full text-[11px] font-mono text-emerald-300 border border-emerald-500/40 font-bold flex items-center gap-1.5">
-                          <Zap className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
-                          {cameraSourceMode === 'webcam' ? 'WEBCAM ANPR 1080p' : 'GATE CCTV LIVE'}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="bg-black/80 backdrop-blur-md px-2.5 py-1 rounded-full text-[11px] font-mono text-emerald-300 border border-emerald-500/40 font-bold flex items-center gap-1.5">
+                            <Zap className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+                            {cameraSourceMode === 'webcam' ? 'WEBCAM ANPR 1080p' : 'GATE CCTV LIVE'}
+                          </span>
+                          {autoScanActive && (
+                            <span className="bg-emerald-600/90 text-white px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold flex items-center gap-1.5 shadow-xs border border-emerald-400/40">
+                              <span className="w-2 h-2 rounded-full bg-emerald-300 animate-ping"></span>
+                              {isLiveScanningFrame ? "SCANNING LIVE..." : "AUTO-SCAN ACTIVE"}
+                            </span>
+                          )}
+                        </div>
                         {ocrProgress && (
                           <span className="bg-primary text-white px-2.5 py-1 rounded-full text-[11px] font-mono font-bold animate-pulse">
                             {ocrProgress}
@@ -938,7 +1217,7 @@ export default function Vehicles() {
                       {/* Reticle Bounding Box */}
                       <div className={cn(
                         "w-64 sm:w-80 h-24 sm:h-32 border-2 border-emerald-400 rounded-xl relative flex flex-col items-center justify-center bg-emerald-500/10 backdrop-blur-xs transition-all duration-300 shadow-xl",
-                        isScanning ? "animate-reticle-glow border-emerald-300 bg-emerald-500/20" : "border-dashed"
+                        isScanning || isLiveScanningFrame ? "animate-reticle-glow border-emerald-300 bg-emerald-500/20" : "border-dashed"
                       )}>
                         <div className="absolute top-0 left-0 w-4 h-4 border-t-3 border-l-3 border-emerald-400 rounded-tl-md"></div>
                         <div className="absolute top-0 right-0 w-4 h-4 border-t-3 border-r-3 border-emerald-400 rounded-tr-md"></div>
@@ -946,15 +1225,18 @@ export default function Vehicles() {
                         <div className="absolute bottom-0 right-0 w-4 h-4 border-b-3 border-r-3 border-emerald-400 rounded-br-md"></div>
 
                         <span className="text-[11px] font-mono font-bold text-emerald-200 tracking-wider bg-black/80 px-2.5 py-1 rounded shadow border border-emerald-500/30">
-                          {isScanning ? "PROCESSING ANPR..." : "ALIGN VEHICLE NUMBER PLATE HERE"}
+                          {isScanning || isLiveScanningFrame ? "AI SCANNING PLATE..." : "ALIGN VEHICLE NUMBER PLATE HERE"}
                         </span>
                         <div className="absolute inset-x-0 h-1 bg-gradient-to-r from-transparent via-emerald-400 to-transparent animate-laser-sweep shadow-md shadow-emerald-400"></div>
                       </div>
 
                       {/* Scanned Badge */}
                       {lastScannedPlate ? (
-                        <div className="bg-amber-300 text-black px-4 py-1.5 rounded-lg border-2 border-black font-mono text-base font-black tracking-wider uppercase shadow-2xl animate-bounce flex items-center gap-2">
+                        <div className="bg-amber-300 text-black px-3.5 py-1.5 rounded-lg border-2 border-black font-mono text-sm font-black tracking-wider uppercase shadow-2xl animate-bounce flex items-center gap-2">
                           <span>{lastScannedPlate.number_plate}</span>
+                          <span className="text-[10px] bg-primary text-white px-2 py-0.5 rounded font-sans font-bold capitalize">
+                            {lastScannedPlate.vehicle_type === 'truck' ? '🚚 Truck' : lastScannedPlate.vehicle_type === 'bus' ? '🚌 Bus' : lastScannedPlate.vehicle_type === 'motorcycle' ? '🏍️ Bike' : lastScannedPlate.vehicle_type === 'bicycle' ? '🚲 Bicycle' : '🚗 Car'}
+                          </span>
                           <span className="text-[10px] bg-black text-amber-300 px-2 py-0.5 rounded font-sans font-bold">SAVED TO DB</span>
                         </div>
                       ) : (
@@ -1002,16 +1284,6 @@ export default function Vehicles() {
                 {isScanning ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5 text-amber-300" />}
                 Scan Plate & Save
               </button>
-
-              <button
-                onClick={handleSimulateVehicleScan}
-                disabled={isScanning}
-                className="py-2 px-3 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold rounded-xl flex items-center justify-center gap-1 transition-colors shrink-0 shadow-xs"
-                title="Demo scan JH03MF4477"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                Demo Scan
-              </button>
             </div>
           </div>
 
@@ -1020,15 +1292,30 @@ export default function Vehicles() {
             <label className="text-xs font-bold text-text flex items-center gap-1.5">
               <Zap className="w-4 h-4 text-amber-400 animate-pulse" /> Instant Plate Quick Register
             </label>
+
+            {/* Input field */}
+            <input
+              type="text"
+              placeholder="Enter vehicle number plate..."
+              value={quickPlateInput}
+              onChange={(e) => setQuickPlateInput(e.target.value.toUpperCase())}
+              onKeyDown={(e) => e.key === 'Enter' && handleQuickPlateScan()}
+              className="w-full bg-background border border-border rounded-xl px-3 py-1.5 text-xs text-text font-mono uppercase focus:ring-1 focus:ring-primary focus:outline-none"
+            />
+
+            {/* Vehicle type + Save button */}
             <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="JH03MF4477, GJ65AB6269..."
-                value={quickPlateInput}
-                onChange={(e) => setQuickPlateInput(e.target.value.toUpperCase())}
-                onKeyDown={(e) => e.key === 'Enter' && handleQuickPlateScan()}
-                className="flex-1 bg-background border border-border rounded-xl px-3 py-1.5 text-xs text-text font-mono uppercase focus:ring-1 focus:ring-primary focus:outline-none"
-              />
+              <select
+                value={quickVehicleType}
+                onChange={(e) => setQuickVehicleType(e.target.value)}
+                className="flex-1 bg-background border border-border rounded-xl px-2.5 py-1.5 text-xs text-text font-semibold focus:ring-1 focus:ring-primary focus:outline-none"
+              >
+                <option value="car">🚗 Car</option>
+                <option value="motorcycle">🏍️ Bike</option>
+                <option value="truck">🚚 Truck</option>
+                <option value="bus">🚌 Bus</option>
+              </select>
+
               <button
                 onClick={handleQuickPlateScan}
                 disabled={isScanning}
@@ -1038,6 +1325,7 @@ export default function Vehicles() {
               </button>
             </div>
           </div>
+
 
           {/* Saved Vehicles Summary Card (Database Overview) */}
           <div className="bg-surface border border-border rounded-2xl p-5 flex-1 shadow-sm space-y-3">
@@ -1084,7 +1372,7 @@ export default function Vehicles() {
 
         {/* Right Column (lg:col-span-2): Side-By-Side History Table */}
         <div className="lg:col-span-2 bg-surface border border-border rounded-2xl overflow-hidden flex flex-col shadow-sm">
-          
+
           {/* Search Bar & Filters Toolbar */}
           <div className="p-4 border-b border-border flex flex-col sm:flex-row gap-3 justify-between bg-surface-hover/30 shrink-0">
             <div className="relative w-full sm:w-64">
@@ -1100,59 +1388,86 @@ export default function Vehicles() {
 
             <div className="flex flex-wrap items-center gap-2">
               {/* Location Spot Filter */}
-              <div className="flex items-center gap-1.5 bg-background border border-border rounded-xl px-3 py-1.5 text-xs">
+              <div className="flex items-center gap-1.5 bg-background border border-border rounded-xl px-2.5 py-1.5 text-xs">
                 <MapPin className="w-3.5 h-3.5 text-primary shrink-0" />
                 <select
                   value={locationFilter}
                   onChange={(e) => setLocationFilter(e.target.value)}
-                  className="bg-transparent text-text focus:outline-none font-semibold text-xs"
+                  className="bg-transparent text-text focus:outline-none font-semibold text-xs cursor-pointer"
                 >
-                  <option value="all">All Locations</option>
-                  <option value="Apartment Parking">Apartment Parking</option>
-                  <option value="Apartment Main Entrance">Apartment Main Entrance</option>
-                  <option value="Apartment Exit Gate">Apartment Exit Gate</option>
-                  <option value="Basement B1 Parking">Basement B1 Parking</option>
-                  <option value="Basement B2 Parking">Basement B2 Parking</option>
-                  <option value="Visitor Parking Zone">Visitor Parking Zone</option>
+                  <option value="all" className="bg-surface text-text">All Locations</option>
+                  <option value="Apartment Parking" className="bg-surface text-text">Apartment Parking</option>
+                  <option value="Apartment Main Entrance" className="bg-surface text-text">Apartment Main Entrance</option>
+                  <option value="Apartment Exit Gate" className="bg-surface text-text">Apartment Exit Gate</option>
+                  <option value="Basement B1 Parking" className="bg-surface text-text">Basement B1 Parking</option>
+                  <option value="Basement B2 Parking" className="bg-surface text-text">Basement B2 Parking</option>
+                  <option value="Visitor Parking Zone" className="bg-surface text-text">Visitor Parking Zone</option>
                 </select>
               </div>
 
               {/* Vehicle Type Filter */}
-              <div className="flex items-center gap-1.5 bg-background border border-border rounded-xl px-3 py-1.5 text-xs">
+              <div className="flex items-center gap-1.5 bg-background border border-border rounded-xl px-2.5 py-1.5 text-xs">
                 <Filter className="w-3.5 h-3.5 text-text-muted shrink-0" />
                 <select
                   value={typeFilter}
                   onChange={(e) => setTypeFilter(e.target.value)}
-                  className="bg-transparent text-text capitalize focus:outline-none font-semibold text-xs"
+                  className="bg-transparent text-text capitalize focus:outline-none font-semibold text-xs cursor-pointer"
                 >
-                  <option value="all">All Vehicle Types</option>
-                  <option value="car">Car</option>
-                  <option value="truck">Truck</option>
-                  <option value="bus">Bus</option>
-                  <option value="motorcycle">Motorcycle</option>
+                  <option value="all" className="bg-surface text-text">All Vehicle Types</option>
+                  <option value="car" className="bg-surface text-text">🚗 Car</option>
+                  <option value="truck" className="bg-surface text-text">🚚 Truck</option>
+                  <option value="bus" className="bg-surface text-text">🚌 Bus</option>
+                  <option value="motorcycle" className="bg-surface text-text">🏍️ Bike / Motorcycle</option>
                 </select>
               </div>
 
               {/* Camera Source Filter */}
-              <select
-                value={cameraFilter}
-                onChange={(e) => setCameraFilter(e.target.value)}
-                className="bg-background border border-border rounded-xl px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary text-text font-semibold"
-              >
-                <option value="all">All Camera Sources</option>
-                <option value="Live ANPR Camera">Live ANPR Camera</option>
-                <option value="Gate CCTV Stream">Gate CCTV Stream</option>
-                <option value="ANPR Quick Register">ANPR Quick Register</option>
-                <option value="ANPR File Scanner">ANPR File Scanner</option>
-              </select>
+              <div className="flex items-center gap-1.5 bg-background border border-border rounded-xl px-2.5 py-1.5 text-xs">
+                <Video className="w-3.5 h-3.5 text-text-muted shrink-0" />
+                <select
+                  value={cameraFilter}
+                  onChange={(e) => setCameraFilter(e.target.value)}
+                  className="bg-transparent text-text focus:outline-none font-semibold text-xs cursor-pointer"
+                >
+                  <option value="all" className="bg-surface text-text">All Camera Sources</option>
+                  <option value="Live ANPR Camera" className="bg-surface text-text">Live ANPR Camera</option>
+                  <option value="Gate CCTV Stream" className="bg-surface text-text">Gate CCTV Stream</option>
+                  <option value="ANPR Quick Register" className="bg-surface text-text">ANPR Quick Register</option>
+                  <option value="ANPR File Scanner" className="bg-surface text-text">ANPR File Scanner</option>
+                </select>
+              </div>
 
               {/* Date Filter */}
-              <input
-                type="date"
-                value={dateFilter}
-                onChange={(e) => setDateFilter(e.target.value)}
-                className="bg-background border border-border rounded-xl px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary text-text font-semibold"
-              />
+              <div className="flex items-center gap-1.5 bg-background border border-border rounded-xl px-2.5 py-1.5 text-xs">
+                <Calendar className="w-3.5 h-3.5 text-text-muted shrink-0" />
+                <input
+                  type="date"
+                  value={dateFilter}
+                  onChange={(e) => setDateFilter(e.target.value)}
+                  className="bg-transparent text-text focus:outline-none font-semibold text-xs cursor-pointer"
+                  title="Filter by Date"
+                />
+                {dateFilter && (
+                  <button
+                    onClick={() => setDateFilter('')}
+                    className="text-text-muted hover:text-danger p-0.5 rounded transition-colors"
+                    title="Clear Date Filter"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Reset All Filters Button */}
+              {hasActiveFilters && (
+                <button
+                  onClick={resetAllFilters}
+                  className="flex items-center gap-1 px-2.5 py-1.5 bg-danger/10 text-danger border border-danger/20 rounded-xl text-xs font-bold hover:bg-danger/20 transition-colors shrink-0"
+                  title="Reset all filters"
+                >
+                  <RotateCcw className="w-3 h-3" /> Reset
+                </button>
+              )}
             </div>
           </div>
 
@@ -1163,8 +1478,8 @@ export default function Vehicles() {
                 <tr>
                   <th className="px-6 py-3.5 font-bold">Plate Number / Class</th>
                   <th className="px-6 py-3.5 font-bold">Vehicle Type</th>
+                  <th className="px-6 py-3.5 font-bold">Camera & Location</th>
                   <th className="px-6 py-3.5 font-bold">AI Match Score</th>
-                  <th className="px-6 py-3.5 font-bold">Location Spot</th>
                   <th className="px-6 py-3.5 font-bold">Observed Timestamp</th>
                   <th className="px-6 py-3.5 font-bold text-right">Details</th>
                 </tr>
@@ -1191,11 +1506,25 @@ export default function Vehicles() {
                 ) : vehicles.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-6 py-16 text-center text-text-muted">
-                      <div className="flex flex-col items-center gap-2">
-                        <Car className="w-10 h-10 opacity-30 text-primary" />
-                        <p className="font-bold text-text text-sm">No saved vehicle number plates found in database.</p>
-                        <p className="text-xs max-w-sm">Use the Live Camera or Instant Scanner on the left to scan vehicle number plates and auto-save them to SQLite database.</p>
-                      </div>
+                      {hasActiveFilters ? (
+                        <div className="flex flex-col items-center gap-2.5">
+                          <Filter className="w-9 h-9 opacity-40 text-primary" />
+                          <p className="font-bold text-text text-sm">No vehicle records match the selected filter criteria.</p>
+                          <p className="text-xs text-text-muted max-w-sm">Try choosing different filter values or reset all filters to view all database records.</p>
+                          <button
+                            onClick={resetAllFilters}
+                            className="mt-2 px-3 py-1.5 bg-primary text-white text-xs font-bold rounded-xl hover:bg-primary/90 transition-colors inline-flex items-center gap-1.5 shadow-sm"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" /> Clear All Filters
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center gap-2">
+                          <Car className="w-10 h-10 opacity-30 text-primary" />
+                          <p className="font-bold text-text text-sm">No saved vehicle number plates found in database.</p>
+                          <p className="text-xs max-w-sm">Use the Live Camera or Instant Scanner on the left to scan vehicle number plates and auto-save them to SQLite database.</p>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ) : (
@@ -1203,7 +1532,7 @@ export default function Vehicles() {
                     const confPct = Math.round((v.confidence || 0) * (v.confidence <= 1.0 ? 100 : 1));
                     return (
                       <tr key={v.id} className="hover:bg-surface-hover/50 transition-colors">
-                        
+
                         {/* Plate Number */}
                         <td className="px-6 py-4 font-bold text-text">
                           <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-300 text-black border-2 border-black rounded font-mono font-black tracking-wider uppercase shadow-xs text-xs sm:text-sm">
@@ -1216,6 +1545,20 @@ export default function Vehicles() {
                           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-primary/10 border border-primary/20 text-primary rounded-lg font-bold text-xs capitalize">
                             {v.vehicle_type === 'truck' ? '🚚 Truck' : v.vehicle_type === 'bus' ? '🚌 Bus' : v.vehicle_type === 'motorcycle' ? '🏍️ Bike' : '🚗 Car'}
                           </span>
+                        </td>
+
+                        {/* Camera & Location Spot */}
+                        <td className="px-6 py-4">
+                          <div className="flex flex-col gap-1">
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-surface-hover border border-border text-text font-semibold rounded-md text-xs">
+                              <Video className="w-3 h-3 text-primary shrink-0" />
+                              {v.camera_name || 'Live ANPR Camera'}
+                            </span>
+                            <span className="inline-flex items-center gap-1 text-emerald-400 text-[11px] font-medium pl-0.5">
+                              <MapPin className="w-3 h-3 shrink-0" />
+                              {v.location_spot || 'Apartment Parking'}
+                            </span>
+                          </div>
                         </td>
 
                         {/* AI Match Score / Confidence */}
@@ -1232,14 +1575,6 @@ export default function Vehicles() {
                             </div>
                             <span className="font-mono font-bold text-text text-xs">{confPct}%</span>
                           </div>
-                        </td>
-
-                        {/* Location Spot */}
-                        <td className="px-6 py-4">
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-surface-hover border border-border text-emerald-400 font-semibold rounded-lg text-xs">
-                            <MapPin className="w-3.5 h-3.5 shrink-0" />
-                            {v.location_spot || 'Apartment Parking'}
-                          </span>
                         </td>
 
                         {/* Timestamp */}
@@ -1293,7 +1628,7 @@ export default function Vehicles() {
                   <p className="text-xs text-text-muted font-mono">Record ID: {selectedVehicleDetail.id}</p>
                 </div>
               </div>
-              <button 
+              <button
                 onClick={() => setSelectedVehicleDetail(null)}
                 className="text-text-muted hover:text-text p-1 rounded-lg hover:bg-surface-hover"
               >
@@ -1350,7 +1685,7 @@ export default function Vehicles() {
             <div className="pt-2 flex justify-end">
               <button
                 onClick={() => setSelectedVehicleDetail(null)}
-                className="px-5 py-2 bg-primary hover:bg-primary-hover text-white font-bold text-xs rounded-xl transition-colors shadow-md"
+                className="px-5 py-2 bg-primary hover:bg-primary-hover text-white font-bold text-xs rounded-xl transition-colors shadow-md cursor-pointer"
               >
                 Close Details
               </button>

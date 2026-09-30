@@ -6,6 +6,7 @@ Aggregates all v1 endpoint routers.
 
 from fastapi import APIRouter
 
+from app.api.v1.evidence import router as evidence_router
 from app.api.v1.health import router as health_router
 from app.api.v1.tenants import router as tenants_router
 from app.api.v1.sites import router as sites_router
@@ -24,6 +25,7 @@ from app.api.v1.object_detection_ws import router as object_detection_ws_router
 
 api_v1_router = APIRouter(prefix="/api/v1")
 
+api_v1_router.include_router(evidence_router)
 api_v1_router.include_router(health_router)
 api_v1_router.include_router(auth_router)
 api_v1_router.include_router(tenants_router)

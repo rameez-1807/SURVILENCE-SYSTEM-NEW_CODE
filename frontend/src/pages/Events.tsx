@@ -12,7 +12,7 @@ import {
   Activity,
   X
 } from 'lucide-react';
-import { api } from '../lib/api';
+import { api, getWsUrl } from '../lib/api';
 import { cn } from '../utils/cn';
 
 export default function Events() {
@@ -52,7 +52,7 @@ export default function Events() {
   // WebSocket Connection
   useEffect(() => {
     const token = localStorage.getItem('token') || 'dummy-token';
-    const wsUrl = `ws://localhost:8000/api/v1/ws?token=${token}`; // Adjust path if WS is at root
+    const wsUrl = getWsUrl(`/api/v1/ws?token=${token}`);
     // But based on backend, router prefix is /ws. So /api/v1/ws
     
     let ws: WebSocket;

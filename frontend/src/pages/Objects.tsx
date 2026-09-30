@@ -18,7 +18,7 @@ import {
   Database,
   Activity
 } from 'lucide-react';
-import { api } from '../lib/api';
+import { api, getWsUrl } from '../lib/api';
 import { cn } from '../utils/cn';
 
 const LOW_CONFIDENCE_THRESHOLD = 0.45;
@@ -266,7 +266,7 @@ export default function Objects() {
     if (!captureCanvas) return;
 
     // 4. Connect WebSocket
-    const wsUrl = `ws://127.0.0.1:8000/api/v1/ws/object-detection`;
+    const wsUrl = getWsUrl('/api/v1/ws/object-detection');
     const ws = new WebSocket(wsUrl);
     liveWsRef.current = ws;
 

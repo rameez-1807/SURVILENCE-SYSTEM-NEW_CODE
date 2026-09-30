@@ -240,10 +240,49 @@ npm run dev
 
 ---
 
+---
+
 ### Step 4: Access the System
 - 🌐 **Web Dashboard**: `http://localhost:5173`
 - 📚 **Swagger API Docs**: `http://127.0.0.1:8000/docs`
 - 📖 **ReDoc Documentation**: `http://127.0.0.1:8000/redoc`
+
+---
+
+## 🚀 Cloud Deployment Guide
+
+### 🟣 Deploy Backend to Render
+
+1. Log in to [Render.com](https://render.com) and click **New +** → **Web Service**.
+2. Connect your repository: `https://github.com/rameez-1807/SURVILENCE-SYSTEM-NEW_CODE.git`.
+3. Configure settings:
+   - **Root Directory**: `backend`
+   - **Environment**: `Python 3`
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+4. Add **Environment Variables**:
+   - `PYTHON_VERSION`: `3.11.9`
+   - `DATABASE_URL`: `postgresql+asyncpg://postgres:[PASSWORD]@db.ofknpvaxynvokuzfkwds.supabase.co:5432/postgres`
+   - `SUPABASE_URL`: `https://ofknpvaxynvokuzfkwds.supabase.co`
+   - `SUPABASE_KEY`: `sb_publishable_dFi-FFNPjCd77jj708hhNQ_xKts43nk`
+   - `SECRET_KEY`: `your-random-secure-secret-key-2026`
+   - `APP_NAME`: `AI Surveillance System`
+5. Click **Create Web Service**. Your backend will be live at `https://your-service-name.onrender.com`!
+
+---
+
+### ▲ Deploy Frontend to Vercel
+
+1. Log in to [Vercel.com](https://vercel.com) and click **Add New...** → **Project**.
+2. Select your repository `SURVILENCE-SYSTEM-NEW_CODE`.
+3. Configure settings:
+   - **Root Directory**: `frontend`
+   - **Framework Preset**: `Vite`
+   - **Build Command**: `npm run build`
+   - **Output Directory**: `dist`
+4. Add **Environment Variables**:
+   - `VITE_API_URL`: `https://your-service-name.onrender.com`
+5. Click **Deploy**. Vercel will build the frontend and deploy it with full SPA routing (`vercel.json`).
 
 ---
 

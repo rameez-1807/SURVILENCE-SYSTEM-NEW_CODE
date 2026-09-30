@@ -6,13 +6,14 @@ from app.schemas.vehicle import VehicleCreate
 async def test_vehicles():
     async with async_session_factory() as db:
         print("Testing ANPR Scan and DB Save...")
-        scanned = await VehicleService.scan_and_save(
+        success, scanned, message, details = await VehicleService.scan_and_save(
             db=db,
             manual_plate="MH12AB1234",
             vehicle_type="car",
             camera_name="Entrance Gate ANPR"
         )
-        print(f"Scanned & Saved: ID={scanned.id}, Plate={scanned.number_plate}, Confidence={scanned.confidence}")
+        if scanned:
+            print(f"Scanned & Saved: ID={scanned.id}, Plate={scanned.number_plate}, Confidence={scanned.confidence}")
 
         total, items = await VehicleService.list_vehicles(db)
         print(f"Total Vehicles in DB: {total}")
