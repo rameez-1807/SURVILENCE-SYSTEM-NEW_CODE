@@ -26,7 +26,8 @@ if _is_postgres:
         "connect_args": {
             "ssl": "require",
             # PgBouncer transaction-mode doesn't support prepared statements.
-            # asyncpg uses them by default, so we must disable the cache.
+            # asyncpg uses them by default, so we must disable statement_cache_size.
+            "statement_cache_size": 0,
             "prepared_statement_cache_size": 0,
         },
     })

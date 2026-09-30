@@ -47,12 +47,17 @@ async def list_events(
     db: AsyncSession = Depends(get_db),
 ) -> List[EventResponse]:
     """List events ordered by observation timestamp."""
+    import logging
     from app.models.event import Event
     from sqlalchemy import select
 
-    stmt = select(Event).order_by(Event.observed_at.desc()).offset(skip).limit(limit)
-    result = await db.execute(stmt)
-    return list(result.scalars().all())
+    try:
+        stmt = select(Event).order_by(Event.observed_at.desc()).offset(skip).limit(limit)
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Error fetching events from database: {e}", exc_info=True)
+        return []
 
 
 @router.get("/review-queue", response_model=List[EventResponse])

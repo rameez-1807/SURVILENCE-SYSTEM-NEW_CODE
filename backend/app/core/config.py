@@ -80,6 +80,7 @@ class Settings(BaseSettings):
         """Construct the async database connection URL.
 
         Priority: DATABASE_URL / SUPABASE_DB_URL env > local SQLite.
+        Automatically resolves Supabase IPv4 pooler to prevent IPv6 unreachable errors on Render.
         """
         import os
         url = os.environ.get("DATABASE_URL") or os.environ.get("SUPABASE_DB_URL") or self.SUPABASE_DB_URL
@@ -88,7 +89,13 @@ class Settings(BaseSettings):
                 url = url.replace("postgres://", "postgresql+asyncpg://", 1)
             elif url.startswith("postgresql://") and not url.startswith("postgresql+"):
                 url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+            # Render free tier has no IPv6 support. If user provides direct Supabase port 5432, route through IPv4 pooler.
+            if "db.ofknpvaxynvokuzfkwds.supabase.co:5432" in url:
+                url = "postgresql+asyncpg://postgres.ofknpvaxynvokuzfkwds:suHH6zklTgKZoqS8@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres"
             return url
+        # If in cloud deployment (Render) without DATABASE_URL, default to the Supabase pooler
+        if os.environ.get("RENDER") or os.environ.get("PORT"):
+            return "postgresql+asyncpg://postgres.ofknpvaxynvokuzfkwds:suHH6zklTgKZoqS8@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres"
         return "sqlite+aiosqlite:///./ai_surveillance.db"
 
     @property
@@ -104,7 +111,11 @@ class Settings(BaseSettings):
                 url = url.replace("postgres://", "postgresql+psycopg://", 1)
             elif url.startswith("postgresql://") and not url.startswith("postgresql+"):
                 url = url.replace("postgresql://", "postgresql+psycopg://", 1)
+            if "db.ofknpvaxynvokuzfkwds.supabase.co:5432" in url:
+                url = "postgresql+psycopg://postgres.ofknpvaxynvokuzfkwds:suHH6zklTgKZoqS8@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres"
             return url
+        if os.environ.get("RENDER") or os.environ.get("PORT"):
+            return "postgresql+psycopg://postgres.ofknpvaxynvokuzfkwds:suHH6zklTgKZoqS8@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres"
         return "sqlite:///./ai_surveillance.db"
 
 
