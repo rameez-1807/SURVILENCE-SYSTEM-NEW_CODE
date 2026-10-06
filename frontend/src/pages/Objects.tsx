@@ -78,10 +78,16 @@ export default function Objects() {
   const [selectedEvent, setSelectedEvent] = useState<ObjectDetectionEvent | null>(null);
 
   // ── Live Detection Model & Sensitivity State ──
-  const [selectedModel, setSelectedModel] = useState<'yolo11m' | 'yoloe'>('yolo11m');
-  const [liveConfidence, setLiveConfidence] = useState<number>(0.45);
-  const selectedModelRef = useRef<'yolo11m' | 'yoloe'>('yolo11m');
-  const liveConfidenceRef = useRef<number>(0.45);
+  const [selectedModel, setSelectedModel] = useState<'yolo11m' | 'yoloe'>('yoloe');
+  const [liveConfidence, setLiveConfidence] = useState<number>(0.35);
+  const selectedModelRef = useRef<'yolo11m' | 'yoloe'>('yoloe');
+  const liveConfidenceRef = useRef<number>(0.35);
+
+  // Open-Vocabulary Target Classes for YOLO-World
+  const DEFAULT_OPEN_VOCAB = ['mobile phone', 'watch', 'pen', 'laptop', 'tablet', 'person', 'bag', 'bottle', 'keys'];
+  const [targetClasses, setTargetClasses] = useState<string[]>(DEFAULT_OPEN_VOCAB);
+  const [customClassInput, setCustomClassInput] = useState<string>('');
+  const targetClassesRef = useRef<string[]>(DEFAULT_OPEN_VOCAB);
 
   useEffect(() => {
     selectedModelRef.current = selectedModel;
@@ -91,13 +97,19 @@ export default function Objects() {
     liveConfidenceRef.current = liveConfidence;
   }, [liveConfidence]);
 
+  useEffect(() => {
+    targetClassesRef.current = targetClasses;
+  }, [targetClasses]);
+
   // ── Live YOLOE & YOLO11m WebSocket Detection State ──
   const [liveDetections, setLiveDetections] = useState<Array<{
+    track_id?: number;
     class_id: number;
     name: string;
     confidence: number;
     x1: number; y1: number; x2: number; y2: number;
   }>>([]);
+  const [liveActiveTracks, setLiveActiveTracks] = useState<number>(0);
   const [liveCounts, setLiveCounts] = useState<Record<string, number>>({});
   const [liveWsStatus, setLiveWsStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
   const [liveInferenceMs, setLiveInferenceMs] = useState(0);
@@ -105,6 +117,30 @@ export default function Objects() {
   const [liveFrameSize, setLiveFrameSize] = useState({ w: 0, h: 0 });
   const [liveError, setLiveError] = useState<string | null>(null);
   const [isLiveCameraActive, setIsLiveCameraActive] = useState(false);
+
+  // Open-Vocabulary Target Categories Handlers
+  const handleAddClass = (className?: string) => {
+    const val = (className || customClassInput).trim().toLowerCase();
+    if (!val) return;
+    if (!targetClasses.includes(val)) {
+      setTargetClasses([...targetClasses, val]);
+    }
+    setCustomClassInput('');
+  };
+
+  const handleRemoveClass = (clsToRemove: string) => {
+    setTargetClasses(targetClasses.filter((c) => c !== clsToRemove));
+  };
+
+  const handleApplyPreset = (preset: 'gadgets' | 'office' | 'all') => {
+    if (preset === 'gadgets') {
+      setTargetClasses(['mobile phone', 'watch', 'pen', 'laptop', 'tablet']);
+    } else if (preset === 'office') {
+      setTargetClasses(['laptop', 'mouse', 'keyboard', 'bottle', 'pen', 'chair', 'cup']);
+    } else {
+      setTargetClasses(DEFAULT_OPEN_VOCAB);
+    }
+  };
 
   const liveVideoRef = useRef<HTMLVideoElement | null>(null);
   const liveCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -178,13 +214,15 @@ export default function Objects() {
       const w = x2 - x1;
       const h = y2 - y1;
       const conf = Math.round(det.confidence * 100);
-      const label = `${det.name.toUpperCase()} ${conf}%`;
+      const trackBadge = det.track_id !== undefined ? `[#${det.track_id}] ` : '';
+      const label = `${trackBadge}${det.name.toUpperCase()} ${conf}%`;
 
-      // Pick color based on confidence
+      // Tracked object color palette
+      const isTracked = det.track_id !== undefined;
       const isHigh = det.confidence >= 0.7;
-      const boxColor = isHigh ? '#10B981' : '#f59e0b';
-      const accentColor = isHigh ? '#34D399' : '#fbbf24';
-      const bgColor = isHigh ? '#059669' : '#d97706';
+      const boxColor = isTracked ? '#06b6d4' : (isHigh ? '#10B981' : '#f59e0b');
+      const accentColor = isTracked ? '#38bdf8' : (isHigh ? '#34D399' : '#fbbf24');
+      const bgColor = isTracked ? '#0e7490' : (isHigh ? '#059669' : '#d97706');
 
       // Bounding box
       ctx.strokeStyle = boxColor;
@@ -206,7 +244,7 @@ export default function Objects() {
       const labelH = 22;
       const labelY = y1 > labelH + 4 ? y1 - labelH - 2 : y1 + 2;
       ctx.fillStyle = bgColor;
-      ctx.globalAlpha = 0.9;
+      ctx.globalAlpha = 0.92;
       ctx.beginPath();
       ctx.roundRect(x1, labelY, textWidth + 12, labelH, 4);
       ctx.fill();
@@ -308,7 +346,9 @@ export default function Objects() {
             ws.send(JSON.stringify({
               frame: b64,
               model: selectedModelRef.current,
-              confidence: liveConfidenceRef.current
+              confidence: liveConfidenceRef.current,
+              classes: targetClassesRef.current,
+              auto_save: autoSave
             }));
           }
         } catch (e) {
@@ -329,8 +369,16 @@ export default function Objects() {
         const counts = data.counts || {};
         setLiveDetections(dets);
         setLiveCounts(counts);
+        setLiveActiveTracks(data.active_tracks !== undefined ? data.active_tracks : dets.length);
         setLiveInferenceMs(data.inference_ms || 0);
         setLiveFrameSize({ w: data.frame_width || 0, h: data.frame_height || 0 });
+
+        // If new confirmed tracks were persisted to database, notify user briefly
+        if (data.new_confirmed && data.new_confirmed.length > 0) {
+          const names = data.new_confirmed.map((c: any) => `#${c.track_id} ${c.class_name}`).join(', ');
+          setSaveStatus(`✓ Auto-saved tracked object: ${names}`);
+          setTimeout(() => setSaveStatus(null), 3500);
+        }
 
         // FPS counter
         liveFpsCounterRef.current.frames++;
@@ -1124,24 +1172,29 @@ export default function Objects() {
                 {scanMode === 'live' && (
                   <div className="flex bg-background border border-border rounded-xl p-0.5 text-xs">
                     <button
-                      onClick={() => setSelectedModel('yolo11m')}
-                      title="Recommended: Standard COCO high precision model (no false positives)"
+                      onClick={() => setSelectedModel('yoloe')}
+                      title="YOLO-World Open-Vocabulary detector with ByteTrack multi-object tracking"
                       className={cn(
-                        "px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all",
-                        selectedModel === 'yolo11m' ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-xs" : "text-text-muted hover:text-text"
+                        "flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] font-bold transition-all",
+                        selectedModel === 'yoloe' 
+                          ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs" 
+                          : "text-text-muted hover:text-text"
                       )}
                     >
-                      YOLO11m (Accurate)
+                      <Sparkles className="w-3 h-3 text-cyan-400" />
+                      YOLO-World (Open-Vocab + ByteTrack)
                     </button>
                     <button
-                      onClick={() => setSelectedModel('yoloe')}
-                      title="Open Vocabulary model for broad item detection"
+                      onClick={() => setSelectedModel('yolo11m')}
+                      title="COCO standard 80 classes fixed detector"
                       className={cn(
                         "px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all",
-                        selectedModel === 'yoloe' ? "bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-xs" : "text-text-muted hover:text-text"
+                        selectedModel === 'yolo11m' 
+                          ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-xs" 
+                          : "text-text-muted hover:text-text"
                       )}
                     >
-                      YOLOE (Open Vocab)
+                      YOLO11m (Standard COCO)
                     </button>
                   </div>
                 )}
@@ -1154,14 +1207,14 @@ export default function Objects() {
                     <span className="text-text-muted text-[11px] font-medium">Confidence:</span>
                     <input
                       type="range"
-                      min="0.25"
+                      min="0.20"
                       max="0.80"
                       step="0.05"
                       value={liveConfidence}
                       onChange={(e) => setLiveConfidence(parseFloat(e.target.value))}
-                      className="w-20 accent-emerald-500 cursor-pointer h-1.5"
+                      className="w-20 accent-cyan-500 cursor-pointer h-1.5"
                     />
-                    <span className="text-emerald-400 font-mono font-bold text-xs min-w-[32px]">
+                    <span className="text-cyan-400 font-mono font-bold text-xs min-w-[32px]">
                       {Math.round(liveConfidence * 100)}%
                     </span>
                   </div>
@@ -1174,9 +1227,9 @@ export default function Objects() {
                   </span>
                 )}
                 {scanMode === 'live' && liveWsStatus === 'connected' && (
-                  <span className="flex items-center gap-1.5 px-2.5 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs font-bold rounded-full animate-pulse">
-                    <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full"></span>
-                    {liveFps} FPS • {liveInferenceMs.toFixed(0)}ms • {liveDetections.length} objects
+                  <span className="flex items-center gap-1.5 px-2.5 py-0.5 bg-cyan-500/20 text-cyan-400 text-xs font-bold rounded-full animate-pulse">
+                    <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full"></span>
+                    {liveFps} FPS • {liveInferenceMs.toFixed(0)}ms • {liveActiveTracks} Tracks
                   </span>
                 )}
                 {scanMode === 'live' && liveWsStatus === 'connecting' && (
@@ -1187,6 +1240,91 @@ export default function Objects() {
                 )}
               </div>
             </div>
+
+            {/* Open-Vocabulary Class Manager Bar (Live YOLO-World mode) */}
+            {scanMode === 'live' && selectedModel === 'yoloe' && (
+              <div className="px-4 py-2.5 bg-surface/70 border-b border-border/80 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2 flex-wrap flex-1">
+                  <div className="flex items-center gap-1.5 text-text-muted font-semibold text-[11px] shrink-0">
+                    <Box className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Vocabulary ({targetClasses.length}):</span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {targetClasses.map((cls) => (
+                      <span
+                        key={cls}
+                        className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/25 text-[11px] font-medium shadow-xs"
+                      >
+                        {cls}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveClass(cls)}
+                          title={`Remove ${cls}`}
+                          className="hover:text-white transition-colors"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  {/* Quick Preset Buttons */}
+                  <div className="flex items-center gap-1 bg-background/80 border border-border/80 rounded-lg p-0.5 text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => handleApplyPreset('gadgets')}
+                      className="px-2 py-0.5 rounded hover:bg-surface text-text-muted hover:text-text font-medium"
+                      title="Mobile phone, Watch, Pen, Laptop, Tablet"
+                    >
+                      Gadgets
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleApplyPreset('office')}
+                      className="px-2 py-0.5 rounded hover:bg-surface text-text-muted hover:text-text font-medium"
+                      title="Laptop, Mouse, Keyboard, Bottle, Pen, Chair, Cup"
+                    >
+                      Office
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleApplyPreset('all')}
+                      className="px-2 py-0.5 rounded hover:bg-surface text-text-muted hover:text-text font-medium"
+                      title="Reset to default categories"
+                    >
+                      Reset
+                    </button>
+                  </div>
+
+                  {/* Add Custom Class Input */}
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="text"
+                      placeholder="+ Add class (e.g. coffee mug)"
+                      value={customClassInput}
+                      onChange={(e) => setCustomClassInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddClass();
+                        }
+                      }}
+                      className="px-2.5 py-1 bg-background border border-border rounded-lg text-xs w-44 focus:outline-none focus:border-cyan-500 text-text placeholder:text-text-muted/60"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleAddClass()}
+                      className="px-2.5 py-1 bg-cyan-500 hover:bg-cyan-600 text-white rounded-lg text-xs font-bold transition-all shadow-xs"
+                    >
+                      Add
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Mode: Live YOLOE Detection (WebSocket) */}
             {scanMode === 'live' && (
@@ -1219,16 +1357,16 @@ export default function Objects() {
                       <div className="p-4 bg-emerald-500/10 text-emerald-400 rounded-full inline-block mb-1 border border-emerald-500/20">
                         <Eye className="w-8 h-8" />
                       </div>
-                      <h4 className="text-sm font-bold text-white">Open-Vocabulary Live Object Detection</h4>
+                      <h4 className="text-sm font-bold text-white">YOLO-World Open-Vocabulary & ByteTrack Live Detection</h4>
                       <p className="text-xs text-text-muted max-w-sm mx-auto">
-                        Start your webcam to detect objects in real-time using YOLOE open-vocabulary AI.
-                        The detector uses a broad learned vocabulary and is not limited to fixed classes.
+                        Real-time open-vocabulary inference with stable ByteTrack multi-object tracking.
+                        Detect any custom object (mobile phone, watch, pen, laptop, tablet, etc.) with bounding boxes, confidence, and persistent track IDs.
                       </p>
                       <button
                         onClick={startLiveCamera}
-                        className="px-6 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-xl shadow-lg transition-all flex items-center gap-2 mx-auto"
+                        className="px-6 py-2.5 bg-cyan-500 hover:bg-cyan-600 text-white text-xs font-bold rounded-xl shadow-lg transition-all flex items-center gap-2 mx-auto"
                       >
-                        <Camera className="w-4 h-4" /> Start Camera
+                        <Camera className="w-4 h-4" /> Start Live Camera
                       </button>
                     </div>
                   )}
@@ -1248,19 +1386,19 @@ export default function Objects() {
                     {/* Connection status pill */}
                     <span className={cn(
                       "flex items-center gap-1.5 px-2.5 py-1 rounded-full font-bold",
-                      liveWsStatus === 'connected' ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" :
+                      liveWsStatus === 'connected' ? "bg-cyan-500/15 text-cyan-400 border border-cyan-500/30" :
                       liveWsStatus === 'connecting' ? "bg-yellow-500/15 text-yellow-400 border border-yellow-500/30" :
                       liveWsStatus === 'error' ? "bg-red-500/15 text-red-400 border border-red-500/30" :
                       "bg-surface-hover text-text-muted border border-border"
                     )}>
                       <span className={cn(
                         "w-1.5 h-1.5 rounded-full",
-                        liveWsStatus === 'connected' ? "bg-emerald-400" :
+                        liveWsStatus === 'connected' ? "bg-cyan-400" :
                         liveWsStatus === 'connecting' ? "bg-yellow-400 animate-pulse" :
                         liveWsStatus === 'error' ? "bg-red-400" :
                         "bg-gray-500"
                       )} />
-                      {liveWsStatus === 'connected' ? 'Connected' :
+                      {liveWsStatus === 'connected' ? 'Connected (ByteTrack Active)' :
                        liveWsStatus === 'connecting' ? 'Connecting…' :
                        liveWsStatus === 'error' ? 'Error' : 'Disconnected'}
                     </span>
@@ -1268,11 +1406,12 @@ export default function Objects() {
                     {isLiveCameraActive && (
                       <>
                         <span className="text-text-muted font-mono">FPS: <span className="text-emerald-400 font-bold">{liveFps}</span></span>
-                        <span className="text-text-muted font-mono">Inf: <span className="text-primary font-bold">{liveInferenceMs.toFixed(0)}ms</span></span>
+                        <span className="text-text-muted font-mono">Inf: <span className="text-cyan-400 font-bold">{liveInferenceMs.toFixed(0)}ms</span></span>
                         {liveFrameSize.w > 0 && (
-                          <span className="text-text-muted font-mono">Res: <span className="text-emerald-400 font-bold">{liveFrameSize.w}x{liveFrameSize.h}</span></span>
+                          <span className="text-text-muted font-mono">Res: <span className="text-text font-bold">{liveFrameSize.w}x{liveFrameSize.h}</span></span>
                         )}
-                        <span className="text-text-muted font-mono">Objects: <span className="text-white font-bold">{liveDetections.length}</span></span>
+                        <span className="text-text-muted font-mono">Active Tracks: <span className="text-cyan-400 font-bold">{liveActiveTracks}</span></span>
+                        <span className="text-text-muted font-mono">Boxes: <span className="text-white font-bold">{liveDetections.length}</span></span>
                       </>
                     )}
                   </div>

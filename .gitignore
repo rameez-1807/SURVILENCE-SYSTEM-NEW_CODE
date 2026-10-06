@@ -51,9 +51,13 @@ backend/evidence/snapshots/*.png
 alembic/versions/*.pyc
 
 # Model Weights (large binaries >50MB)
+weights/
+backend/weights/
 models/*.pt
 !models/best.pt
 backend/*.pt
 !backend/best.pt
 !backend/yolov8n.pt
+*.pt
+!models/best.pt
 runs/

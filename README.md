@@ -54,10 +54,10 @@ The **AI Surveillance System** is an enterprise-grade, high-performance security
 
 Engineered with an asynchronous Python backend (**FastAPI + SQLAlchemy 2.0 Async + WebSockets**) and a reactive glassmorphic frontend (**React 19 + TypeScript + Tailwind CSS v4**), the platform seamlessly orchestrates:
 
-* 🎯 **Sub-Millisecond Inference**: YOLOv8 neural network inference with GPU acceleration (`CUDA`) and CPU fallback.
-* 🛰️ **Deterministic Object Tracking**: ByteTrack persistent identity tracking (`track_id`) across consecutive video frames.
+* 🎯 **YOLO-World Open-Vocabulary Detection**: Zero-shot real-time open-vocabulary neural inference with text embeddings (e.g. mobile phones, watches, pens, laptops, tablets, or custom classes added on the fly).
+* 🛰️ **Deterministic ByteTrack Multi-Object Tracking**: Persistent identity tracking (`track_id`) across consecutive video frames with debounced cooldowns to eliminate database duplicates.
 * 🛡️ **Interactive ROI Security Zones**: Polygon ray-casting algorithm to detect perimeter breaches and loitering.
-* 🚗 **ANPR License Plate Scanner**: Real-time vehicle license plate extraction with OpenCV contour analysis and Tesseract OCR.
+* 🚗 **ANPR License Plate Scanner**: Real-time vehicle license plate extraction with OpenCV contour analysis and EasyOCR.
 * 🧠 **Groq Multimodal Vision Engine**: Secondary verification using Groq's high-speed multimodal LLM (`qwen/qwen3.6-27b`).
 * 📝 **Human-in-the-Loop Review Queue**: Dedicated audit queue for security personnel to inspect flagged events and correct labels.
 * 🪪 **Biometric Facial Attendance**: In-browser edge neural facial recognition (`face-api.js`) with employee directory and daily logs.

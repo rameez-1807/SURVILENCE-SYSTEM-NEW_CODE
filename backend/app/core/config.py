@@ -64,9 +64,13 @@ class Settings(BaseSettings):
     # YOLO11m Webcam Detection (separate from RTSP pipeline model)
     YOLO11M_MODEL_PATH: str = "app/models/yolo11m.pt"
 
-    # YOLOE Open-Vocabulary Detection (prompt-free, broad vocabulary)
-    YOLOE_MODEL_PATH: str = "yoloe-11m-seg-pf.pt"
-    YOLOE_CONF: float = 0.40
+    # YOLOE / YOLO-World Open-Vocabulary Detection
+    YOLOWORLD_MODEL_PATH: str = "models/yolov8s-worldv2.pt"
+    YOLOWORLD_CONF: float = 0.35
+    YOLOWORLD_IMGSZ: int = 640
+    YOLOWORLD_DEFAULT_CLASSES: str = "mobile phone,watch,pen,laptop,tablet,person,bag,backpack,bottle,keys"
+    YOLOE_MODEL_PATH: str = "models/yolov8s-worldv2.pt"
+    YOLOE_CONF: float = 0.35
     YOLOE_IMGSZ: int = 640
     YOLOE_FPS: int = 8
 

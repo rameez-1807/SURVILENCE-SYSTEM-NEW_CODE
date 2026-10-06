@@ -13,7 +13,7 @@ from app.api.v1 import api_v1_router
 from app.core.config import settings
 from app.core.pipeline.orchestrator import pipeline_orchestrator
 from app.core.ai.yolo11m_singleton import load_model as load_yolo11m
-from app.core.ai.yoloe_singleton import load_model as load_yoloe
+from app.core.ai.yoloworld_singleton import load_model as load_yoloworld
 
 
 @asynccontextmanager
