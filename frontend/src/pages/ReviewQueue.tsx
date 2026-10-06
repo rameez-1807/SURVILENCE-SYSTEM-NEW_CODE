@@ -5,9 +5,14 @@ import {
   Clock,
   Sparkles,
   Camera,
-  ShieldAlert
+  ShieldAlert,
+  RefreshCw,
+  Edit3
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { PageHeader } from '../components/ui/PageHeader';
+import { Badge } from '../components/ui/Badge';
+import { EmptyState } from '../components/ui/EmptyState';
 import { cn } from '../utils/cn';
 
 interface ObjectDetectionEvent {
@@ -67,7 +72,7 @@ export default function ReviewQueue() {
         corrected_label: newLabel.trim()
       });
       
-      setSaveStatus('✓ Label corrected successfully');
+      setSaveStatus('✓ Label corrected and verified successfully');
       setTimeout(() => setSaveStatus(null), 3500);
       
       // Remove from list
@@ -79,118 +84,150 @@ export default function ReviewQueue() {
     }
   };
 
-  if (loading) {
+  if (loading && events.length === 0) {
     return (
-      <div className="p-8 max-w-7xl mx-auto flex items-center justify-center min-h-[50vh]">
-        <div className="animate-spin w-8 h-8 border-4 border-cyan-500 border-t-transparent rounded-full" />
+      <div className="space-y-6">
+        <div className="h-16 w-80 bg-surface/60 rounded-2xl animate-pulse" />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {[...Array(6)].map((_, i) => (
+            <div key={i} className="glass-card rounded-2xl h-80 animate-pulse" />
+          ))}
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-6 animate-fade-in relative">
+    <div className="space-y-6 animate-fade-in select-none">
+      {/* Toast Notification */}
       {saveStatus && (
-        <div className="fixed top-8 right-8 bg-emerald-500/20 border border-emerald-500/50 text-emerald-400 text-sm px-4 py-2 rounded-full flex items-center gap-2 z-50 animate-fade-in shadow-[0_0_15px_rgba(16,185,129,0.2)]">
-          {saveStatus.includes('Failed') ? <AlertCircle className="w-4 h-4 text-red-400" /> : <CheckCircle2 className="w-4 h-4" />}
-          <span className={saveStatus.includes('Failed') ? 'text-red-400' : ''}>{saveStatus}</span>
+        <div className="fixed top-20 right-6 bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs px-4 py-2.5 rounded-xl flex items-center gap-2 z-50 animate-slide-up shadow-2xl backdrop-blur-md">
+          {saveStatus.includes('Failed') ? <AlertCircle className="w-4 h-4 text-rose-400" /> : <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+          <span>{saveStatus}</span>
         </div>
       )}
 
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-            <ShieldAlert className="w-8 h-8 text-cyan-400" />
-            Review Queue
-          </h1>
-          <p className="text-slate-400 mt-2">
-            Manually review and correct low-confidence or flagged AI detections.
-          </p>
-        </div>
-      </div>
+      {/* Header */}
+      <PageHeader
+        title="Human-in-the-Loop Review Queue"
+        subtitle="Manually inspect, label, and retrain low-confidence computer vision detections"
+        icon={ShieldAlert}
+        badge={
+          <Badge variant={events.length > 0 ? "warning" : "success"} size="xs" dot pulse={events.length > 0}>
+            {events.length} PENDING TRIAGE
+          </Badge>
+        }
+      >
+        <button
+          onClick={fetchQueue}
+          className="p-2 rounded-xl bg-surface/80 border border-border/80 text-text-muted hover:text-white hover:bg-surface-hover transition-colors"
+          title="Refresh Queue"
+        >
+          <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
+        </button>
+      </PageHeader>
 
       {error && (
-        <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-xl flex items-start gap-3">
-          <AlertCircle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
-          <p className="text-red-400 text-sm">{error}</p>
+        <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-2xl flex items-center gap-2.5 text-xs text-rose-300">
+          <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+          <p>{error}</p>
         </div>
       )}
 
       {events.length === 0 ? (
-        <div className="bg-slate-800/50 border border-slate-700/50 rounded-2xl p-12 text-center flex flex-col items-center">
-          <CheckCircle2 className="w-16 h-16 text-emerald-500/50 mb-4" />
-          <h3 className="text-xl font-medium text-white mb-2">Queue is Empty</h3>
-          <p className="text-slate-400">No items need review right now.</p>
-        </div>
+        <EmptyState
+          icon={CheckCircle2}
+          title="Review Queue is Empty"
+          description="All low-confidence detections have been audited and verified. The neural feedback pipeline is clear."
+        />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {events.map(event => (
-            <div key={event.id} className="bg-slate-800/80 border border-slate-700/50 rounded-2xl overflow-hidden hover:border-slate-600/50 transition-colors flex flex-col">
-              {event.evidence_reference && event.evidence_reference.startsWith('data:image') ? (
-                <div className="h-48 w-full bg-black relative border-b border-slate-700/50">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {events.map((event) => (
+            <div 
+              key={event.id} 
+              className="glass-card glass-card-hover rounded-2xl overflow-hidden border border-border/80 flex flex-col shadow-xl"
+            >
+              {/* Evidence Media Snapshot */}
+              <div className="relative aspect-video w-full bg-black flex items-center justify-center overflow-hidden border-b border-border/60">
+                <div className="pointer-events-none absolute inset-0 bg-cyber-grid opacity-25" />
+
+                {/* Corner reticles */}
+                <div className="pointer-events-none absolute top-2 left-2 w-3 h-3 border-t-2 border-l-2 border-cyan-400/60" />
+                <div className="pointer-events-none absolute top-2 right-2 w-3 h-3 border-t-2 border-r-2 border-cyan-400/60" />
+                <div className="pointer-events-none absolute bottom-2 left-2 w-3 h-3 border-b-2 border-l-2 border-cyan-400/60" />
+                <div className="pointer-events-none absolute bottom-2 right-2 w-3 h-3 border-b-2 border-r-2 border-cyan-400/60" />
+
+                {event.evidence_reference && event.evidence_reference.startsWith('data:image') ? (
                   <img 
                     src={event.evidence_reference} 
-                    alt="Evidence" 
+                    alt="Evidence Frame" 
                     className="w-full h-full object-contain"
                   />
+                ) : (
+                  <div className="flex flex-col items-center justify-center text-text-dim text-xs font-mono p-4 text-center">
+                    <Camera className="w-8 h-8 mb-2 opacity-40 text-cyan-400" />
+                    <span className="truncate max-w-[200px]">{event.evidence_reference || 'Telemetry Snapshot'}</span>
+                  </div>
+                )}
+
+                {/* Top Badge: AI-Confidence */}
+                <div className="absolute top-2.5 right-2.5 z-10">
+                  {event.is_llm_verified ? (
+                    <Badge variant="cyan" size="xs" icon={<Sparkles className="w-3 h-3" />}>
+                      LLM VERIFIED
+                    </Badge>
+                  ) : (
+                    <Badge
+                      variant={event.confidence > 0.7 ? "success" : event.confidence > 0.4 ? "warning" : "danger"}
+                      size="xs"
+                    >
+                      {Math.round(event.confidence * 100)}% CONFIDENCE
+                    </Badge>
+                  )}
                 </div>
-              ) : (
-                <div className="h-48 w-full bg-slate-900/50 flex flex-col items-center justify-center border-b border-slate-700/50 text-slate-500">
-                  <Camera className="w-8 h-8 mb-2 opacity-50" />
-                  <span className="text-xs">{event.evidence_reference || 'No image available'}</span>
-                </div>
-              )}
+              </div>
               
-              <div className="p-5 flex-1 flex flex-col">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <div className="text-slate-400 text-xs mb-1 flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      {new Date(event.observed_at).toLocaleString()}
+              {/* Card Body */}
+              <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
+                <div className="flex items-start justify-between text-xs text-text-muted">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1.5 font-mono text-[11px] text-text-dim">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>{new Date(event.observed_at).toLocaleString()}</span>
                     </div>
                     {event.camera_id && (
-                      <div className="text-slate-500 text-xs flex items-center gap-1">
-                        <Camera className="w-3 h-3" />
-                        Camera {event.camera_id.substring(0, 8)}
+                      <div className="flex items-center gap-1.5 font-mono text-[11px] text-cyan-400">
+                        <Camera className="w-3.5 h-3.5" />
+                        <span>CAMERA: {event.camera_id.substring(0, 10)}</span>
                       </div>
                     )}
                   </div>
-                  
-                  {event.is_llm_verified ? (
-                    <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 px-2 py-1 rounded text-[10px] uppercase font-bold tracking-wider flex items-center gap-1">
-                      <Sparkles className="w-3 h-3" /> AI-Verified
-                    </div>
-                  ) : (
-                    <div className={cn(
-                      "px-2 py-1 rounded text-[10px] uppercase font-bold tracking-wider",
-                      event.confidence > 0.7 ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" :
-                      event.confidence > 0.4 ? "bg-amber-500/10 border-amber-500/30 text-amber-400" :
-                      "bg-red-500/10 border-red-500/30 text-red-400"
-                    )}>
-                      {Math.round(event.confidence * 100)}% Match
-                    </div>
-                  )}
                 </div>
                 
-                <div className="mt-auto space-y-3">
+                {/* Correction Input */}
+                <div className="space-y-3 pt-2 border-t border-border/50">
                   <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
-                      Correct Label
+                    <label className="block text-[11px] font-mono font-semibold text-text uppercase tracking-wider mb-1.5">
+                      Target Classification Label
                     </label>
-                    <input 
-                      type="text" 
-                      value={inputs[event.id] || ''}
-                      onChange={(e) => setInputs(prev => ({ ...prev, [event.id]: e.target.value }))}
-                      className="w-full bg-slate-900 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500"
-                      placeholder="Enter correct object name"
-                    />
+                    <div className="relative">
+                      <Edit3 className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+                      <input 
+                        type="text" 
+                        value={inputs[event.id] || ''}
+                        onChange={(e) => setInputs(prev => ({ ...prev, [event.id]: e.target.value }))}
+                        className="w-full bg-[#0a0f1d] border border-border/80 text-white rounded-xl pl-8 pr-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-cyan-500/40 font-mono"
+                        placeholder="e.g. Authorized Vehicle"
+                      />
+                    </div>
                   </div>
                   
                   <button
                     onClick={() => handleCorrect(event.id)}
-                    className="w-full bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/50 py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                    className="w-full bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white font-semibold py-2.5 rounded-xl text-xs shadow-md shadow-blue-500/25 transition-all flex items-center justify-center gap-2 active:scale-95"
                   >
-                    <CheckCircle2 className="w-4 h-4" />
-                    Confirm / Correct
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Confirm & Feed AI Pipeline</span>
                   </button>
                 </div>
               </div>

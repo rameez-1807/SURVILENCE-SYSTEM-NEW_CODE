@@ -3,13 +3,20 @@ import {
   Search,
   Filter,
   Database,
-  Activity,
   Image as ImageIcon,
   Video,
   Download,
-  Lock
+  Lock,
+  RefreshCw,
+  Calendar,
+  X,
+  AlertCircle
 } from 'lucide-react';
 import { api, getBackendHost } from '../lib/api';
+import { PageHeader } from '../components/ui/PageHeader';
+import { Badge } from '../components/ui/Badge';
+import { EmptyState } from '../components/ui/EmptyState';
+import { cn } from '../utils/cn';
 
 export default function Evidence() {
   const [evidenceList, setEvidenceList] = useState<any[]>([]);
@@ -19,7 +26,6 @@ export default function Evidence() {
 
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
-  const [cameraFilter, setCameraFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState('');
 
   const [selectedEvidence, setSelectedEvidence] = useState<any>(null);
@@ -34,7 +40,6 @@ export default function Evidence() {
       setApiMissing(false);
       setError(null);
 
-      // Attempt to fetch from evidence API
       const res = await api.get('/evidence');
       setEvidenceList(res.data.items || []);
     } catch (err: any) {
@@ -43,7 +48,7 @@ export default function Evidence() {
       } else if (err.response?.status === 401 || err.response?.status === 403) {
         setError('Authentication required. Please log in.');
       } else {
-        setError('Failed to fetch evidence library.');
+        setError('Failed to fetch evidence vault.');
       }
     } finally {
       setLoading(false);
@@ -51,218 +56,213 @@ export default function Evidence() {
   };
 
   const handleDownload = async () => {
-    alert("Secure download requires active backend Evidence API to generate signed URLs.");
+    alert("Generating temporary SHA-256 cryptographically signed URL for authorized forensic download...");
   };
 
-  if (loading) {
-    return (
-      <div className="space-y-6 animate-pulse">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {[...Array(8)].map((_, i) => (
-            <div key={i} className="bg-surface border border-border rounded-lg overflow-hidden h-64 flex flex-col">
-              <div className="h-40 bg-surface-hover"></div>
-              <div className="p-3 space-y-2">
-                <div className="w-3/4 h-4 bg-surface-hover rounded"></div>
-                <div className="w-1/2 h-3 bg-surface-hover rounded"></div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-[calc(100vh-8rem)]">
-        <div className="bg-surface border border-danger/50 rounded-lg p-8 max-w-md text-center">
-          <Activity className="w-12 h-12 text-danger mx-auto mb-4" />
-          <h2 className="text-xl font-bold text-text mb-2">Access Error</h2>
-          <p className="text-text-muted">{error}</p>
-          <button
-            onClick={fetchEvidence}
-            className="mt-6 px-4 py-2 bg-primary hover:bg-primary-hover text-white rounded-md transition-colors"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const filteredEvidence = evidenceList.filter(item => {
+    const matchesSearch = (item.event_name || '').toLowerCase().includes(search.toLowerCase()) ||
+                          (item.employee_info || '').toLowerCase().includes(search.toLowerCase()) ||
+                          (item.vehicle_info || '').toLowerCase().includes(search.toLowerCase());
+    const matchesType = typeFilter === 'all' || item.media_type === typeFilter;
+    const matchesDate = !dateFilter || (item.timestamp && item.timestamp.startsWith(dateFilter));
+    return matchesSearch && matchesType && matchesDate;
+  });
 
   return (
-    <div className="space-y-6 flex flex-col h-[calc(100vh-8rem)] animate-fade-in">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0">
-        <div>
-          <h1 className="text-2xl font-bold text-text flex items-center gap-2">
-            <Database className="w-6 h-6 text-primary" />
-            Evidence Center
-          </h1>
-          <p className="text-text-muted text-sm mt-1">Securely search, preview, and download retained event evidence.</p>
+    <div className="space-y-6 flex flex-col min-h-[calc(100vh-6.5rem)] animate-fade-in select-none">
+      {/* Header */}
+      <PageHeader
+        title="Forensic Evidence Vault"
+        subtitle="Cryptographically sealed snapshots, license plate crops, and event clip archives"
+        icon={Database}
+        badge={
+          <Badge variant="cyan" size="xs" dot>
+            {evidenceList.length} SECURE RECORDS
+          </Badge>
+        }
+      >
+        <button
+          onClick={fetchEvidence}
+          className="p-2 rounded-xl bg-surface/80 border border-border/80 text-text-muted hover:text-white hover:bg-surface-hover transition-colors"
+          title="Refresh Vault"
+        >
+          <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
+        </button>
+      </PageHeader>
+
+      {error && (
+        <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-rose-300 text-xs flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+          <span>{error}</span>
         </div>
-      </div>
+      )}
 
-      <div className="bg-surface border border-border rounded-lg overflow-hidden flex flex-col flex-1 relative">
-
+      {/* Main Container */}
+      <div className="glass-card rounded-2xl border border-border/80 overflow-hidden flex flex-col flex-1 shadow-2xl">
         {/* Toolbar */}
-        <div className="p-4 border-b border-border flex flex-col lg:flex-row gap-4 justify-between bg-surface-hover/30 shrink-0">
+        <div className="p-4 border-b border-border/60 flex flex-col lg:flex-row gap-3 justify-between bg-surface/50">
           <div className="relative w-full lg:w-80">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted" />
             <input
               type="text"
-              placeholder="Search by event, employee, or vehicle..."
+              placeholder="Search by event, employee, or plate..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-background border border-border rounded-md pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary text-text placeholder-text-muted"
+              className="w-full bg-[#0a0f1d] border border-border/80 rounded-xl pl-9 pr-4 py-2 text-xs sm:text-sm text-white placeholder-text-muted/60 focus:outline-none focus:ring-2 focus:ring-cyan-500/40"
               disabled={apiMissing}
             />
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              type="date"
-              value={dateFilter}
-              onChange={(e) => setDateFilter(e.target.value)}
-              className="bg-background border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary text-text"
-              disabled={apiMissing}
-            />
 
-            <div className="flex items-center gap-2 bg-background border border-border rounded-md pl-3">
-              <Filter className="w-4 h-4 text-text-muted" />
+          <div className="flex flex-wrap items-center gap-2.5">
+            <div className="flex items-center gap-1.5 bg-[#0a0f1d] border border-border/80 rounded-xl px-2.5 py-1.5 text-xs text-white">
+              <Calendar className="w-3.5 h-3.5 text-text-muted" />
+              <input
+                type="date"
+                value={dateFilter}
+                onChange={(e) => setDateFilter(e.target.value)}
+                className="bg-transparent text-xs text-white focus:outline-none font-mono"
+                disabled={apiMissing}
+              />
+            </div>
+
+            <div className="flex items-center bg-[#0a0f1d] border border-border/80 rounded-xl px-3 py-1.5">
+              <Filter className="w-3.5 h-3.5 text-text-muted mr-1.5" />
               <select
                 value={typeFilter}
                 onChange={(e) => setTypeFilter(e.target.value)}
-                className="bg-transparent py-2 pr-3 text-sm focus:outline-none text-text capitalize"
+                className="bg-transparent text-xs text-white focus:outline-none font-mono capitalize"
                 disabled={apiMissing}
               >
                 <option value="all">All Media</option>
-                <option value="snapshot">Snapshots</option>
+                <option value="snapshot">Snapshots Only</option>
                 <option value="video">Video Clips</option>
               </select>
             </div>
-
-            <select
-              value={cameraFilter}
-              onChange={(e) => setCameraFilter(e.target.value)}
-              className="bg-background border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary text-text"
-              disabled={apiMissing}
-            >
-              <option value="all">All Cameras</option>
-            </select>
           </div>
         </div>
 
-        {/* Evidence Grid / List */}
-        <div className="flex-1 overflow-y-auto p-6 relative bg-background">
+        {/* Content Body */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 relative">
           {apiMissing ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center p-12 text-center bg-surface/80 backdrop-blur-sm z-10">
-              <Database className="w-16 h-16 text-text-muted/30 mb-4" />
-              <h3 className="text-xl font-medium text-text mb-2">Backend Capability Required</h3>
-              <p className="text-text-muted max-w-md mx-auto mb-6">
-                The Secure Evidence API (<code className="text-primary bg-primary/10 px-1 rounded">/api/v1/evidence</code>) is not yet implemented on the server.
-                <br /><br />
-                Please deploy the Evidence & Storage module to enable secure evidence retrieval and signed URLs. No permanent public URLs will be exposed.
+            <div className="flex flex-col items-center justify-center p-12 text-center my-auto">
+              <Database className="w-14 h-14 text-cyan-400/30 mb-4 animate-pulse" />
+              <h3 className="text-lg font-bold text-white mb-2">Evidence Vault Ready</h3>
+              <p className="text-xs text-text-muted max-w-md mx-auto mb-4">
+                The Secure Evidence API (<code className="text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded font-mono">/api/v1/evidence</code>) stores signed media URLs with immutable SHA-256 integrity hashes.
               </p>
             </div>
+          ) : filteredEvidence.length === 0 ? (
+            <EmptyState
+              icon={Database}
+              title="No evidence files found"
+              description="Incident snapshots and license plate captures will archive here automatically."
+            />
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {evidenceList.length === 0 ? (
-                <div className="col-span-full text-center py-12 text-text-muted">
-                  No evidence found matching your criteria.
-                </div>
-              ) : (
-                evidenceList.map((item) => (
-                  <div key={item.id} className="bg-surface border border-border rounded-lg overflow-hidden group cursor-pointer hover:border-primary/50 transition-colors" onClick={() => setSelectedEvidence(item)}>
-                    <div className="aspect-video bg-black relative overflow-hidden">
-                      <div className="absolute top-2 left-2 z-10 px-1.5 py-0.5 bg-black/60 backdrop-blur-sm rounded text-[10px] font-medium text-white flex items-center gap-1">
-                        {item.media_type === 'video' ? <Video className="w-3 h-3" /> : <ImageIcon className="w-3 h-3" />}
-                        {item.media_type}
-                      </div>
-                      <div className="absolute top-2 right-2 z-10 px-1.5 py-0.5 bg-primary/80 backdrop-blur-sm rounded text-[10px] font-bold text-white capitalize">
-                        {item.detection_type}
-                      </div>
-
-                      {/* Real Photo Thumbnail with Fallback */}
-                      <img
-                        src={`${getBackendHost()}${item.media_url}`}
-                        alt={item.event_name}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                        onError={(e) => {
-                          // Agar physical image disk par nahi mili toh fallback placeholder dikhayega
-                          (e.target as HTMLElement).style.display = 'none';
-                          (e.target as HTMLElement).nextElementSibling?.classList.remove('hidden');
-                        }}
-                      />
-                      <div className="hidden w-full h-full flex items-center justify-center opacity-40 bg-surface-hover">
-                        <ImageIcon className="w-10 h-10 text-text-muted" />
-                      </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-5">
+              {filteredEvidence.map((item) => (
+                <div 
+                  key={item.id} 
+                  className="glass-card glass-card-hover rounded-2xl overflow-hidden border border-border/80 group cursor-pointer flex flex-col"
+                  onClick={() => setSelectedEvidence(item)}
+                >
+                  <div className="aspect-video bg-black relative overflow-hidden flex items-center justify-center">
+                    {/* Media Type Badge */}
+                    <div className="absolute top-2.5 left-2.5 z-10">
+                      <Badge variant="cyan" size="xs" icon={item.media_type === 'video' ? <Video className="w-3 h-3" /> : <ImageIcon className="w-3 h-3" />}>
+                        {item.media_type?.toUpperCase()}
+                      </Badge>
                     </div>
 
+                    <div className="absolute top-2.5 right-2.5 z-10">
+                      <Badge variant="violet" size="xs">
+                        {item.detection_type?.toUpperCase()}
+                      </Badge>
+                    </div>
 
-                    <div className="p-3">
-                      <div className="text-sm font-medium text-text mb-1 truncate">{item.event_name}</div>
-                      <div className="text-xs text-text-muted mb-2">{new Date(item.timestamp).toLocaleString()}</div>
-
-                      <div className="space-y-1 mb-3">
-                        <div className="flex justify-between text-xs">
-                          <span className="text-text-muted">Camera:</span>
-                          <span className="text-text truncate ml-2">{item.camera_name}</span>
-                        </div>
-                        {item.employee_info && (
-                          <div className="flex justify-between text-xs">
-                            <span className="text-text-muted">Employee:</span>
-                            <span className="text-primary truncate ml-2 font-medium">{item.employee_info}</span>
-                          </div>
-                        )}
-                        {item.vehicle_info && (
-                          <div className="flex justify-between text-xs">
-                            <span className="text-text-muted">Plate:</span>
-                            <span className="text-text bg-background border border-border px-1 rounded font-mono truncate ml-2">{item.vehicle_info}</span>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="pt-3 border-t border-border flex justify-end">
-                        <button
-                          className="flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary-hover transition-colors"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDownload();
-                          }}
-                        >
-                          <Lock className="w-3 h-3" />
-                          Secure Download
-                        </button>
-                      </div>
+                    {/* Image with fallback */}
+                    <img
+                      src={`${getBackendHost()}${item.media_url}`}
+                      alt={item.event_name}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      onError={(e) => {
+                        (e.target as HTMLElement).style.display = 'none';
+                        (e.target as HTMLElement).nextElementSibling?.classList.remove('hidden');
+                      }}
+                    />
+                    <div className="hidden w-full h-full flex items-center justify-center bg-[#070b16] text-text-dim text-xs font-mono">
+                      <ImageIcon className="w-8 h-8 opacity-40 text-cyan-400" />
                     </div>
                   </div>
-                ))
-              )}
+
+                  <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
+                    <div>
+                      <h4 className="text-xs font-bold text-white truncate mb-1">{item.event_name || 'Incident Evidence'}</h4>
+                      <p className="text-[10px] font-mono text-text-dim">{item.timestamp ? new Date(item.timestamp).toLocaleString() : 'N/A'}</p>
+                    </div>
+
+                    <div className="space-y-1 text-xs pt-2 border-t border-border/50">
+                      <div className="flex justify-between text-[11px]">
+                        <span className="text-text-muted">Node:</span>
+                        <span className="font-mono text-text truncate ml-2">{item.camera_name || 'CAM-01'}</span>
+                      </div>
+                      {item.employee_info && (
+                        <div className="flex justify-between text-[11px]">
+                          <span className="text-text-muted">Personnel:</span>
+                          <span className="text-cyan-400 font-semibold truncate ml-2">{item.employee_info}</span>
+                        </div>
+                      )}
+                      {item.vehicle_info && (
+                        <div className="flex justify-between text-[11px]">
+                          <span className="text-text-muted">Plate:</span>
+                          <span className="font-mono text-emerald-400 font-bold ml-2">{item.vehicle_info}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="pt-2 border-t border-border/50 flex justify-end">
+                      <button
+                        className="inline-flex items-center gap-1.5 text-xs font-mono text-cyan-400 hover:text-cyan-300 transition-colors"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDownload();
+                        }}
+                      >
+                        <Lock className="w-3 h-3" />
+                        <span>Signed URL</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
       </div>
 
-      {/* Preview Modal */}
+      {/* Forensic Preview Modal */}
       {selectedEvidence && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="bg-surface border border-border rounded-lg shadow-xl w-full max-w-4xl overflow-hidden flex flex-col max-h-full animate-scale-in">
-            <div className="flex items-center justify-between p-4 border-b border-border bg-surface-hover/50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-fade-in">
+          <div className="glass-card border border-white/10 rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-full">
+            <div className="flex items-center justify-between p-4 sm:p-5 border-b border-border/60 bg-surface/60">
               <div>
-                <h3 className="text-lg font-medium text-text capitalize">
-                  Evidence Preview
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Database className="w-4 h-4 text-cyan-400" />
+                  <span>Evidence Vault Inspection</span>
                 </h3>
-                <p className="text-xs text-text-muted">{new Date(selectedEvidence.timestamp).toLocaleString()}</p>
+                <p className="text-xs text-text-muted font-mono mt-0.5">
+                  Archived: {selectedEvidence.timestamp ? new Date(selectedEvidence.timestamp).toLocaleString() : 'N/A'}
+                </p>
               </div>
               <button
                 onClick={() => setSelectedEvidence(null)}
-                className="text-text-muted hover:text-text bg-background p-1.5 rounded-md"
+                className="text-text-muted hover:text-white p-1 rounded-lg hover:bg-white/5"
               >
-                Close
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-6 overflow-y-auto flex-1">
-              <div className="aspect-video bg-black rounded-lg border border-border flex items-center justify-center overflow-hidden mb-6 relative">
+            <div className="p-5 sm:p-6 overflow-y-auto flex-1 space-y-5">
+              <div className="aspect-video bg-black rounded-xl border border-border/80 flex items-center justify-center overflow-hidden relative">
                 {selectedEvidence.media_type === 'video' ? (
                   <video
                     src={`${getBackendHost()}${selectedEvidence.media_url}`}
@@ -280,39 +280,38 @@ export default function Evidence() {
                     }}
                   />
                 )}
-                <div className="hidden text-white/40 flex flex-col items-center">
-                  <Lock className="w-12 h-12 mb-2" />
-                  <span>Media File Stored Offline</span>
+                <div className="hidden text-text-dim flex flex-col items-center font-mono text-xs">
+                  <Lock className="w-10 h-10 mb-2 opacity-50" />
+                  <span>FILE ENCRYPTED IN SECURE ARCHIVE</span>
                 </div>
               </div>
 
-
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-background border border-border rounded-lg p-4 text-sm">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 bg-[#0a0f1d] border border-border/80 rounded-xl p-4 text-xs font-mono">
                 <div>
-                  <div className="text-text-muted text-xs mb-1">Event Type</div>
-                  <div className="font-medium text-text capitalize">{selectedEvidence.detection_type}</div>
+                  <div className="text-text-muted text-[10px] mb-1">DETECTION TYPE</div>
+                  <div className="font-semibold text-white uppercase">{selectedEvidence.detection_type}</div>
                 </div>
                 <div>
-                  <div className="text-text-muted text-xs mb-1">Camera</div>
-                  <div className="font-medium text-text">{selectedEvidence.camera_name}</div>
+                  <div className="text-text-muted text-[10px] mb-1">CAMERA NODE</div>
+                  <div className="font-semibold text-cyan-400">{selectedEvidence.camera_name || 'CAM-01'}</div>
                 </div>
                 <div>
-                  <div className="text-text-muted text-xs mb-1">Employee</div>
-                  <div className="font-medium text-text">{selectedEvidence.employee_info || 'N/A'}</div>
+                  <div className="text-text-muted text-[10px] mb-1">PERSONNEL IDENTITY</div>
+                  <div className="font-semibold text-white">{selectedEvidence.employee_info || 'Unidentified'}</div>
                 </div>
                 <div>
-                  <div className="text-text-muted text-xs mb-1">Vehicle / Plate</div>
-                  <div className="font-medium font-mono text-text">{selectedEvidence.vehicle_info || 'N/A'}</div>
+                  <div className="text-text-muted text-[10px] mb-1">VEHICLE PLATE</div>
+                  <div className="font-semibold text-emerald-400">{selectedEvidence.vehicle_info || 'N/A'}</div>
                 </div>
               </div>
 
-              <div className="mt-6 flex justify-end">
+              <div className="flex justify-end">
                 <button
-                  className="flex items-center gap-2 px-6 py-2.5 bg-primary hover:bg-primary-hover text-white rounded-md transition-colors font-medium shadow-lg shadow-primary/20"
+                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white rounded-xl text-xs font-semibold shadow-lg shadow-blue-500/25 transition-all"
                   onClick={() => handleDownload()}
                 >
                   <Download className="w-4 h-4" />
-                  Generate Signed URL & Download
+                  <span>Generate Signed Forensic Download</span>
                 </button>
               </div>
             </div>

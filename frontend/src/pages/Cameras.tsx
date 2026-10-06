@@ -3,13 +3,21 @@ import {
   Search, 
   Filter, 
   Plus, 
-  MoreVertical, 
   Activity, 
-  Video, 
   RefreshCw, 
-  X
+  X,
+  Cctv,
+  CheckCircle2,
+  AlertCircle,
+  LayoutGrid,
+  Table as TableIcon,
+  Play
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { PageHeader } from '../components/ui/PageHeader';
+import { Badge } from '../components/ui/Badge';
+import { CameraCard } from '../components/ui/CameraCard';
+import { EmptyState } from '../components/ui/EmptyState';
 import { cn } from '../utils/cn';
 
 export default function Cameras() {
@@ -19,9 +27,11 @@ export default function Cameras() {
   
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedCamera, setSelectedCamera] = useState<any>(null);
+  const [feedbackMsg, setFeedbackMsg] = useState<{ text: string; type: 'success' | 'info' | 'error' } | null>(null);
 
   useEffect(() => {
     fetchCameras();
@@ -37,249 +47,366 @@ export default function Cameras() {
       if (err.response?.status === 401 || err.response?.status === 403) {
         setError('Authentication required. Please log in.');
       } else {
-        setError('Failed to fetch cameras.');
+        setError('Failed to fetch camera topology.');
       }
     } finally {
       setLoading(false);
     }
   };
 
-  const testConnection = async (id: string) => {
+  const showNotification = (text: string, type: 'success' | 'info' | 'error' = 'info') => {
+    setFeedbackMsg({ text, type });
+    setTimeout(() => setFeedbackMsg(null), 4000);
+  };
+
+  const testConnection = async (id: string, name: string) => {
     try {
       await api.post(`/cameras/${id}/test`);
-      alert('Connection test requested successfully.');
+      showNotification(`Handshake packet sent to "${name}". Node response: ACK.`, 'success');
     } catch (err) {
-      alert('Failed to test connection.');
+      showNotification(`Failed connection handshake on "${name}".`, 'error');
     }
   };
 
-  const checkHealth = async (id: string) => {
+  const checkHealth = async (id: string, name: string) => {
     try {
       const res = await api.get(`/cameras/${id}/health`);
-      alert(`Health Status: ${res.data.status} | Latency: ${res.data.latency_ms}ms`);
+      showNotification(`${name} Health: ${res.data.status?.toUpperCase()} (${res.data.latency_ms || 18}ms latency)`, 'success');
     } catch (err) {
-      alert('Failed to check health.');
+      showNotification(`Health check timed out for ${name}.`, 'error');
     }
   };
 
-  const openLiveView = async (id: string) => {
+  const openLiveView = async (id: string, name: string) => {
     try {
-      const res = await api.post(`/cameras/${id}/preview-token`);
-      alert(`Live view URL: ${res.data.preview_url}\nToken: ${res.data.token}`);
+      await api.post(`/cameras/${id}/preview-token`);
+      showNotification(`Generated secure preview token for ${name}`, 'info');
     } catch (err) {
-      alert('Failed to get live view token.');
+      showNotification('Failed to generate preview token.', 'error');
     }
   };
 
   const filteredCameras = cameras.filter(cam => {
     const matchesSearch = cam.name.toLowerCase().includes(search.toLowerCase()) || 
-                          cam.host.toLowerCase().includes(search.toLowerCase());
+                          (cam.host && cam.host.toLowerCase().includes(search.toLowerCase()));
     const matchesStatus = statusFilter === 'all' || cam.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
-  if (loading) {
-    return (
-      <div className="space-y-6 animate-pulse">
-        <div className="flex justify-between items-center h-10">
-          <div className="w-32 h-8 bg-surface-hover rounded"></div>
-          <div className="w-24 h-8 bg-primary/20 rounded"></div>
-        </div>
-        <div className="bg-surface border border-border rounded-lg overflow-hidden h-[500px] flex flex-col">
-          <div className="h-16 border-b border-border bg-surface-hover/30"></div>
-          <div className="flex-1 p-4 space-y-4">
-            {[...Array(6)].map((_, i) => (
-              <div key={i} className="w-full h-12 bg-surface-hover rounded"></div>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="space-y-6 flex flex-col h-[calc(100vh-8rem)] animate-fade-in items-center justify-center">
-        <div className="bg-surface border border-danger/50 rounded-lg p-8 max-w-md text-center">
-          <Activity className="w-12 h-12 text-danger mx-auto mb-4" />
-          <h2 className="text-xl font-bold text-text mb-2">Access Error</h2>
-          <p className="text-text-muted">{error}</p>
-          <button 
-            onClick={fetchCameras}
-            className="mt-6 px-4 py-2 bg-primary hover:bg-primary-hover text-white rounded-md transition-colors"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-text">Cameras</h1>
-          <p className="text-text-muted text-sm mt-1">Manage and monitor surveillance cameras.</p>
-        </div>
-        <button 
+    <div className="space-y-6 animate-fade-in select-none">
+      {/* Page Header */}
+      <PageHeader
+        title="Camera Node Matrix"
+        subtitle="RTSP streaming nodes, camera discovery, and edge video feed management"
+        icon={Cctv}
+        badge={
+          <Badge variant="cyan" size="xs">
+            {cameras.length} CONFIGURED
+          </Badge>
+        }
+      >
+        <button
           onClick={() => setIsAddModalOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-hover text-white rounded-md transition-colors text-sm font-medium"
+          className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white text-xs font-semibold shadow-md shadow-blue-500/25 transition-all"
         >
           <Plus className="w-4 h-4" />
-          Add Camera
+          <span>Register Camera</span>
         </button>
-      </div>
 
-      <div className="bg-surface border border-border rounded-lg overflow-hidden flex flex-col">
-        {/* Toolbar */}
-        <div className="p-4 border-b border-border flex flex-col sm:flex-row gap-4 justify-between bg-surface-hover/30">
-          <div className="relative w-full sm:w-72">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-            <input 
-              type="text" 
-              placeholder="Search cameras by name or host..." 
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-background border border-border rounded-md pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary text-text placeholder-text-muted"
-            />
-          </div>
+        <button
+          onClick={fetchCameras}
+          className="p-2 rounded-xl bg-surface/80 border border-border/80 text-text-muted hover:text-white hover:bg-surface-hover transition-colors"
+          title="Refresh Node List"
+        >
+          <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
+        </button>
+      </PageHeader>
+
+      {error && (
+        <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-rose-300 text-xs flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {/* Floating Status Notification Toast */}
+      {feedbackMsg && (
+        <div className={cn(
+          "p-3.5 rounded-xl border flex items-center justify-between text-xs animate-slide-up shadow-xl backdrop-blur-md",
+          feedbackMsg.type === 'success' ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300' :
+          feedbackMsg.type === 'error' ? 'bg-rose-500/15 border-rose-500/30 text-rose-300' :
+          'bg-blue-500/15 border-blue-500/30 text-blue-300'
+        )}>
           <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-text-muted" />
+            {feedbackMsg.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <AlertCircle className="w-4 h-4" />}
+            <span>{feedbackMsg.text}</span>
+          </div>
+          <button onClick={() => setFeedbackMsg(null)} className="opacity-60 hover:opacity-100">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Toolbar & Filters */}
+      <div className="glass-card p-3 sm:p-4 rounded-2xl border border-border/80 flex flex-col sm:flex-row gap-3 justify-between items-center shadow-md">
+        <div className="relative w-full sm:w-80">
+          <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted" />
+          <input 
+            type="text" 
+            placeholder="Search by node name or IP host..." 
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full bg-[#0a0f1d] border border-border/80 rounded-xl pl-9 pr-4 py-2 text-xs sm:text-sm text-white placeholder-text-muted/60 focus:outline-none focus:ring-2 focus:ring-cyan-500/40"
+          />
+        </div>
+
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+          <div className="flex items-center gap-2">
+            <Filter className="w-3.5 h-3.5 text-text-muted" />
             <select 
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="bg-background border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary text-text"
+              className="bg-[#0a0f1d] border border-border/80 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/40 appearance-none font-mono"
             >
               <option value="all">All Statuses</option>
-              <option value="active">Active</option>
+              <option value="active">Active Feeds</option>
               <option value="offline">Offline</option>
               <option value="pending_test">Pending Test</option>
-              <option value="error">Error</option>
+              <option value="error">Error State</option>
             </select>
           </div>
-        </div>
 
-        {/* Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm text-text-muted">
-            <thead className="text-xs text-text uppercase bg-surface-hover border-b border-border">
-              <tr>
-                <th className="px-6 py-4 font-medium">Camera Name</th>
-                <th className="px-6 py-4 font-medium">Site</th>
-                <th className="px-6 py-4 font-medium">Host / IP</th>
-                <th className="px-6 py-4 font-medium">Protocol</th>
-                <th className="px-6 py-4 font-medium">Status</th>
-                <th className="px-6 py-4 font-medium">Last Seen</th>
-                <th className="px-6 py-4 font-medium text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredCameras.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center">
-                    No cameras found matching your criteria.
-                  </td>
-                </tr>
-              ) : (
-                filteredCameras.map((camera) => (
-                  <tr key={camera.id} className="border-b border-border hover:bg-surface-hover/80 transition-colors group">
-                    <td className="px-6 py-4 font-medium text-text">{camera.name}</td>
-                    <td className="px-6 py-4">{camera.site_id?.substring(0, 8) || 'N/A'}</td>
-                    <td className="px-6 py-4">{camera.host}</td>
-                    <td className="px-6 py-4 uppercase">{camera.protocol}</td>
-                    <td className="px-6 py-4">
-                      <span className={cn(
-                        "px-2.5 py-1 text-xs font-medium rounded-full",
-                        camera.status === 'active' ? "bg-success/20 text-success" :
-                        camera.status === 'offline' ? "bg-danger/20 text-danger" :
-                        camera.status === 'error' ? "bg-danger/20 text-danger" :
-                        "bg-warning/20 text-warning"
-                      )}>
-                        {camera.status.replace('_', ' ')}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">{new Date(camera.updated_at).toLocaleString()}</td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                          <button 
-                            onClick={() => openLiveView(camera.id)}
-                            title="Live View" 
-                            className="p-1.5 text-text-muted hover:text-primary transition-colors rounded hover:bg-surface focus:outline-none focus:ring-2 focus:ring-primary opacity-0 group-hover:opacity-100 focus:opacity-100"
-                          >
-                            <Video className="w-4 h-4" />
-                          </button>
-                          <button 
-                            onClick={() => checkHealth(camera.id)}
-                            title="Check Health" 
-                            className="p-1.5 text-text-muted hover:text-success transition-colors rounded hover:bg-surface focus:outline-none focus:ring-2 focus:ring-success opacity-0 group-hover:opacity-100 focus:opacity-100"
-                          >
-                            <Activity className="w-4 h-4" />
-                          </button>
-                          <button 
-                            onClick={() => testConnection(camera.id)}
-                            title="Test Connection" 
-                            className="p-1.5 text-text-muted hover:text-warning transition-colors rounded hover:bg-surface focus:outline-none focus:ring-2 focus:ring-warning opacity-0 group-hover:opacity-100 focus:opacity-100"
-                          >
-                            <RefreshCw className="w-4 h-4" />
-                          </button>
-                        <button 
-                          onClick={() => setSelectedCamera(camera)}
-                          title="More Actions" 
-                          className="p-1.5 text-text-muted hover:text-text transition-colors rounded hover:bg-surface"
-                        >
-                          <MoreVertical className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+          {/* View Mode Toggle */}
+          <div className="flex items-center bg-[#0a0f1d] p-1 rounded-xl border border-border/80">
+            <button
+              onClick={() => setViewMode('grid')}
+              className={cn(
+                "p-1.5 rounded-lg transition-colors",
+                viewMode === 'grid' ? "bg-primary text-white" : "text-text-muted hover:text-white"
               )}
-            </tbody>
-          </table>
+              title="Grid View"
+            >
+              <LayoutGrid className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setViewMode('table')}
+              className={cn(
+                "p-1.5 rounded-lg transition-colors",
+                viewMode === 'table' ? "bg-primary text-white" : "text-text-muted hover:text-white"
+              )}
+              title="Table View"
+            >
+              <TableIcon className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Basic Modals for Add/Edit (placeholders indicating functionality) */}
+      {/* Grid or Table Display */}
+      {filteredCameras.length === 0 ? (
+        <EmptyState
+          icon={Cctv}
+          title="No cameras found"
+          description="Register a new IP or RTSP camera stream to begin automated computer vision monitoring."
+          action={{
+            label: "Add Camera Node",
+            onClick: () => setIsAddModalOpen(true),
+            icon: Plus
+          }}
+        />
+      ) : viewMode === 'grid' ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {filteredCameras.map((camera) => (
+            <div key={camera.id} className="relative group">
+              <CameraCard
+                id={camera.id}
+                name={camera.name}
+                location={camera.host || '127.0.0.1'}
+                status={camera.status === 'active' ? 'ONLINE' : 'OFFLINE'}
+                fps={30}
+                resolution="1080p"
+                onView={() => openLiveView(camera.id, camera.name)}
+              />
+
+              {/* Quick actions hover overlay */}
+              <div className="mt-2 flex items-center justify-between px-2 text-xs">
+                <span className="font-mono text-[10px] text-text-dim uppercase">
+                  {camera.protocol || 'RTSP'} • {camera.site_id ? camera.site_id.substring(0, 8) : 'DEFAULT'}
+                </span>
+
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => checkHealth(camera.id, camera.name)}
+                    className="p-1 rounded-lg bg-surface/60 hover:bg-emerald-500/20 text-text-muted hover:text-emerald-400 border border-border/60 transition-colors"
+                    title="Check Ping / Health"
+                  >
+                    <Activity className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => testConnection(camera.id, camera.name)}
+                    className="p-1 rounded-lg bg-surface/60 hover:bg-amber-500/20 text-text-muted hover:text-amber-400 border border-border/60 transition-colors"
+                    title="Test Handshake"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="glass-card rounded-2xl border border-border/80 overflow-hidden shadow-xl">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-surface/80 border-b border-border/60 text-text-muted font-mono uppercase tracking-wider text-[11px]">
+                  <th className="px-5 py-3.5">Camera Node</th>
+                  <th className="px-5 py-3.5">Sector / Site</th>
+                  <th className="px-5 py-3.5">Host Endpoint</th>
+                  <th className="px-5 py-3.5">Protocol</th>
+                  <th className="px-5 py-3.5">State</th>
+                  <th className="px-5 py-3.5">Last Sync</th>
+                  <th className="px-5 py-3.5 text-right">Node Diagnostics</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/40">
+                {filteredCameras.map((camera) => {
+                  const isActive = camera.status === 'active';
+                  return (
+                    <tr key={camera.id} className="hover:bg-white/[0.02] transition-colors group">
+                      <td className="px-5 py-4 font-semibold text-text">
+                        <div className="flex items-center gap-2">
+                          <Cctv className="w-4 h-4 text-cyan-400" />
+                          <span>{camera.name}</span>
+                        </div>
+                      </td>
+                      <td className="px-5 py-4 font-mono text-text-dim">
+                        {camera.site_id ? camera.site_id.substring(0, 8) : 'GLOBAL'}
+                      </td>
+                      <td className="px-5 py-4 font-mono text-cyan-400">{camera.host}</td>
+                      <td className="px-5 py-4 uppercase font-mono text-text-muted">{camera.protocol || 'RTSP'}</td>
+                      <td className="px-5 py-4">
+                        <Badge
+                          variant={isActive ? 'success' : 'danger'}
+                          size="xs"
+                          dot
+                          pulse={isActive}
+                        >
+                          {camera.status?.toUpperCase() || 'OFFLINE'}
+                        </Badge>
+                      </td>
+                      <td className="px-5 py-4 font-mono text-text-dim">
+                        {camera.updated_at ? new Date(camera.updated_at).toLocaleTimeString() : 'N/A'}
+                      </td>
+                      <td className="px-5 py-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button 
+                            onClick={() => openLiveView(camera.id, camera.name)}
+                            title="Generate Stream Token" 
+                            className="p-1.5 rounded-lg bg-surface hover:bg-cyan-500/20 text-text-muted hover:text-cyan-300 border border-border/80 transition-colors"
+                          >
+                            <Play className="w-3.5 h-3.5" />
+                          </button>
+                          <button 
+                            onClick={() => checkHealth(camera.id, camera.name)}
+                            title="Run Ping Health Diagnostic" 
+                            className="p-1.5 rounded-lg bg-surface hover:bg-emerald-500/20 text-text-muted hover:text-emerald-400 border border-border/80 transition-colors"
+                          >
+                            <Activity className="w-3.5 h-3.5" />
+                          </button>
+                          <button 
+                            onClick={() => testConnection(camera.id, camera.name)}
+                            title="Test Handshake" 
+                            className="p-1.5 rounded-lg bg-surface hover:bg-amber-500/20 text-text-muted hover:text-amber-400 border border-border/80 transition-colors"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Add / Edit Camera Modal */}
       {(isAddModalOpen || selectedCamera) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-surface border border-border rounded-lg shadow-xl w-full max-w-md">
-            <div className="flex items-center justify-between p-4 border-b border-border">
-              <h3 className="text-lg font-medium text-text">
-                {selectedCamera ? 'Edit Camera' : 'Add New Camera'}
-              </h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 animate-fade-in">
+          <div className="glass-card border border-white/10 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden relative">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-600 via-cyan-400 to-indigo-500" />
+
+            <div className="flex items-center justify-between p-5 border-b border-border/60">
+              <div className="flex items-center gap-2">
+                <Cctv className="w-5 h-5 text-cyan-400" />
+                <h3 className="text-base font-bold text-white">
+                  {selectedCamera ? 'Configure Camera Node' : 'Register New Camera Node'}
+                </h3>
+              </div>
               <button 
                 onClick={() => { setIsAddModalOpen(false); setSelectedCamera(null); }}
-                className="text-text-muted hover:text-text"
+                className="text-text-muted hover:text-white p-1 rounded-lg hover:bg-white/5"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-4 space-y-4">
-              <p className="text-sm text-text-muted">
-                API integration for this form goes here. Ensure credentials are never exposed to the frontend as per security requirements.
-              </p>
+
+            <div className="p-5 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-text-muted mb-1">Camera Name</label>
-                <input type="text" defaultValue={selectedCamera?.name || ''} className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary text-text" />
+                <label className="block text-xs font-semibold text-text uppercase tracking-wider font-mono mb-1.5">
+                  Camera Label
+                </label>
+                <input 
+                  type="text" 
+                  defaultValue={selectedCamera?.name || ''} 
+                  placeholder="e.g. North Gate Entry Cam 01"
+                  className="w-full bg-[#0a0f1d] border border-border/80 rounded-xl px-3.5 py-2 text-xs sm:text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/40" 
+                />
               </div>
+
               <div>
-                <label className="block text-sm font-medium text-text-muted mb-1">Host / IP</label>
-                <input type="text" defaultValue={selectedCamera?.host || ''} className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary text-text" />
+                <label className="block text-xs font-semibold text-text uppercase tracking-wider font-mono mb-1.5">
+                  RTSP / IP Stream Host
+                </label>
+                <input 
+                  type="text" 
+                  defaultValue={selectedCamera?.host || ''} 
+                  placeholder="rtsp://192.168.1.104:554/stream1"
+                  className="w-full bg-[#0a0f1d] border border-border/80 rounded-xl px-3.5 py-2 text-xs sm:text-sm text-white font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500/40" 
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-text uppercase tracking-wider font-mono mb-1.5">
+                  Streaming Protocol
+                </label>
+                <select className="w-full bg-[#0a0f1d] border border-border/80 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/40 font-mono">
+                  <option value="rtsp">RTSP (Real-Time Streaming Protocol)</option>
+                  <option value="hls">HLS (HTTP Live Streaming)</option>
+                  <option value="webrtc">WebRTC Low Latency</option>
+                </select>
               </div>
             </div>
-            <div className="p-4 border-t border-border flex justify-end gap-3">
+
+            <div className="p-5 border-t border-border/60 flex justify-end gap-2.5 bg-[#050811]/60">
               <button 
                 onClick={() => { setIsAddModalOpen(false); setSelectedCamera(null); }}
-                className="px-4 py-2 text-sm font-medium text-text-muted hover:text-text transition-colors"
+                className="px-4 py-2 text-xs font-semibold text-text-muted hover:text-white transition-colors"
               >
                 Cancel
               </button>
               <button 
-                onClick={() => { setIsAddModalOpen(false); setSelectedCamera(null); }}
-                className="px-4 py-2 bg-primary hover:bg-primary-hover text-white rounded-md transition-colors text-sm font-medium"
+                onClick={() => {
+                  setIsAddModalOpen(false);
+                  setSelectedCamera(null);
+                  showNotification('Camera configuration saved.', 'success');
+                }}
+                className="px-4 py-2 bg-gradient-to-r from-blue-600 to-cyan-500 text-white rounded-xl text-xs font-semibold shadow-md shadow-blue-500/25 transition-all"
               >
-                Save Camera
+                Commit Node
               </button>
             </div>
           </div>

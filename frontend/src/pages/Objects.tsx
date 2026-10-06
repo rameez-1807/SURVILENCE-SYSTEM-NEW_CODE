@@ -20,6 +20,8 @@ import {
 } from 'lucide-react';
 import { api, getWsUrl } from '../lib/api';
 import { cn } from '../utils/cn';
+import { PageHeader } from '../components/ui/PageHeader';
+import { Badge } from '../components/ui/Badge';
 
 const LOW_CONFIDENCE_THRESHOLD = 0.45;
 
@@ -1002,83 +1004,81 @@ export default function Objects() {
   return (
     <div className="space-y-6 flex flex-col min-h-screen animate-fade-in pb-12">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0">
-        <div>
-          <h1 className="text-2xl font-bold text-text flex items-center gap-2">
-            <Box className="w-6 h-6 text-primary" />
-            AI Object Scanner & Permanent Database Recorder
-          </h1>
-          <p className="text-text-muted text-sm mt-1">
-            Scan objects with live camera or photo upload, auto-identify object names with AI voice announcement, and record permanently to SQLite Database.
-          </p>
+      <PageHeader
+        title="Neural Object Detection & Forensics"
+        subtitle="Edge computer vision scanner (YOLO11m & YOLOE), audio announcements, and SQLite telemetry recorder"
+        icon={Box}
+        badge={
+          <Badge variant="cyan" size="xs" dot pulse>
+            YOLOv8 + BYTETRACK
+          </Badge>
+        }
+      >
+        {/* Real-Time Detection Telemetry Pill */}
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-indigo-500/30 bg-indigo-500/10 text-indigo-300 text-xs font-semibold select-none">
+          <Activity className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
+          <span>Tracking Active</span>
+          {pipelineMetrics && (
+            <span className="text-[11px] font-mono text-indigo-200/80 border-l border-indigo-500/30 pl-2">
+              {pipelineMetrics.inference_fps ? `${pipelineMetrics.inference_fps} FPS` : 'Live'} • {pipelineMetrics.avg_inference_latency_ms ? `${pipelineMetrics.avg_inference_latency_ms}ms` : '32ms'}
+            </span>
+          )}
         </div>
 
-        {/* Top Controls: Voice, Pen Mode & Auto-Save */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Real-Time Detection Telemetry Pill */}
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-indigo-500/30 bg-indigo-500/10 text-indigo-300 text-xs font-semibold shadow-xs select-none">
-            <Activity className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
-            <span>YOLOv8 + ByteTrack Active</span>
-            {pipelineMetrics && (
-              <span className="text-[11px] text-indigo-200/80 border-l border-indigo-500/30 pl-2">
-                {pipelineMetrics.inference_fps ? `${pipelineMetrics.inference_fps} FPS` : 'Live'} • {pipelineMetrics.avg_inference_latency_ms ? `${pipelineMetrics.avg_inference_latency_ms}ms` : '32ms'}
-              </span>
-            )}
-          </div>
+        {/* Pen & Office Items Mode Toggle */}
+        <button
+          onClick={() => setIsPenMode(!isPenMode)}
+          title={isPenMode ? "Pen & Handheld Optimization Active" : "Click to Enable Pen & Office Items High-Precision Mode"}
+          className={cn(
+            "flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer select-none",
+            isPenMode 
+              ? "bg-cyan-500/15 border-cyan-500/40 text-cyan-300 shadow-sm shadow-cyan-500/10" 
+              : "bg-surface/80 border-border/80 text-text-muted hover:text-white"
+          )}
+        >
+          <Sparkles className={cn("w-3.5 h-3.5", isPenMode ? "text-cyan-400 animate-pulse" : "")} />
+          <span>{isPenMode ? "Office Mode ON" : "Office Mode OFF"}</span>
+        </button>
 
-          {/* Pen & Office Items Mode Toggle */}
-          <button
-            onClick={() => setIsPenMode(!isPenMode)}
-            title={isPenMode ? "Pen & Handheld Optimization Active" : "Click to Enable Pen & Office Items High-Precision Mode"}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold transition-all shadow-xs cursor-pointer select-none",
-              isPenMode 
-                ? "bg-cyan-500/15 border-cyan-500/40 text-cyan-300 shadow-cyan-500/10" 
-                : "bg-surface-hover border-border text-text-muted hover:text-text"
-            )}
-          >
-            <Sparkles className={cn("w-3.5 h-3.5", isPenMode ? "text-cyan-400 animate-pulse" : "")} />
-            <span>{isPenMode ? "Pen & Office Mode ON" : "Pen Mode OFF"}</span>
-          </button>
+        {/* Voice Toggle */}
+        <button
+          onClick={() => {
+            const nextState = !voiceEnabled;
+            setVoiceEnabled(nextState);
+            if (!nextState && 'speechSynthesis' in window) {
+              window.speechSynthesis.cancel();
+            }
+          }}
+          title={voiceEnabled ? 'Mute AI Voice Name Announcement' : 'Enable AI Voice Name Announcement'}
+          className={cn(
+            "flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all",
+            voiceEnabled 
+              ? "bg-blue-500/15 border-blue-500/40 text-blue-300 shadow-sm shadow-blue-500/10" 
+              : "bg-surface/80 border-border/80 text-text-muted hover:text-white"
+          )}
+        >
+          {voiceEnabled ? <Volume2 className="w-3.5 h-3.5 text-cyan-400" /> : <VolumeX className="w-3.5 h-3.5" />}
+          <span>{voiceEnabled ? "Voice ON" : "Voice OFF"}</span>
+        </button>
 
-          {/* Voice Toggle */}
-          <button
-            onClick={() => {
-              const nextState = !voiceEnabled;
-              setVoiceEnabled(nextState);
-              if (!nextState && 'speechSynthesis' in window) {
-                window.speechSynthesis.cancel();
-              }
-            }}
-            title={voiceEnabled ? 'Mute AI Voice Name Announcement' : 'Enable AI Voice Name Announcement'}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-semibold transition-all ${
-              voiceEnabled 
-                ? 'bg-primary/10 border-primary/30 text-primary' 
-                : 'bg-surface-hover border-border text-text-muted opacity-70'
-            }`}
-          >
-            {voiceEnabled ? <Volume2 className="w-3.5 h-3.5 text-primary" /> : <VolumeX className="w-3.5 h-3.5" />}
-            <span>{voiceEnabled ? 'Voice Announcement ON' : 'Voice Muted'}</span>
-          </button>
-
-          {/* Auto-Save Toggle */}
-          <button
-            onClick={() => setAutoSave(!autoSave)}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-semibold transition-all ${
-              autoSave 
-                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' 
-                : 'bg-surface-hover border-border text-text-muted'
-            }`}
-          >
-            <Zap className={`w-3.5 h-3.5 ${autoSave ? 'text-emerald-400' : ''}`} />
-            <span>{autoSave ? 'Auto-Save to DB Active' : 'Auto-Save Off'}</span>
-          </button>
-        </div>
-      </div>
+        {/* Auto-Save Toggle */}
+        <button
+          onClick={() => setAutoSave(!autoSave)}
+          className={cn(
+            "flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all",
+            autoSave 
+              ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400 shadow-sm shadow-emerald-500/10" 
+              : "bg-surface/80 border-border/80 text-text-muted hover:text-white"
+          )}
+        >
+          <Zap className={cn("w-3.5 h-3.5", autoSave ? "text-emerald-400" : "")} />
+          <span>{autoSave ? "Auto-Save ON" : "Auto-Save OFF"}</span>
+        </button>
+      </PageHeader>
 
       {error && (
-        <div className="p-4 bg-danger/10 border border-danger/20 rounded-xl text-danger text-xs flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 shrink-0" />
+        <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-rose-300 text-xs flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
           <span>{error}</span>
         </div>
       )}

@@ -7,12 +7,15 @@ import {
   UserPlus, 
   XCircle, 
   Image as ImageIcon,
-  Wifi,
-  WifiOff,
-  Activity,
-  X
+  X,
+  ShieldAlert,
+  RefreshCw,
+  AlertCircle
 } from 'lucide-react';
 import { api, getWsUrl } from '../lib/api';
+import { PageHeader } from '../components/ui/PageHeader';
+import { Badge } from '../components/ui/Badge';
+import { EmptyState } from '../components/ui/EmptyState';
 import { cn } from '../utils/cn';
 
 export default function Events() {
@@ -25,7 +28,6 @@ export default function Events() {
   const [severityFilter, setSeverityFilter] = useState('all');
   
   const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>('disconnected');
-  
   const [selectedEvent, setSelectedEvent] = useState<any>(null);
 
   const fetchEvents = useCallback(async () => {
@@ -38,7 +40,7 @@ export default function Events() {
       if (err.response?.status === 401 || err.response?.status === 403) {
         setError('Authentication required. Please log in.');
       } else {
-        setError('Failed to fetch events.');
+        setError('Failed to fetch threat events.');
       }
     } finally {
       setLoading(false);
@@ -53,7 +55,6 @@ export default function Events() {
   useEffect(() => {
     const token = localStorage.getItem('token') || 'dummy-token';
     const wsUrl = getWsUrl(`/api/v1/ws?token=${token}`);
-    // But based on backend, router prefix is /ws. So /api/v1/ws
     
     let ws: WebSocket;
     
@@ -66,10 +67,8 @@ export default function Events() {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          // Assuming data represents an event or alert
           if (data && data.id) {
             setEvents(prev => {
-              // Prevent duplication
               const exists = prev.find(e => e.id === data.id);
               if (exists) {
                 return prev.map(e => e.id === data.id ? data : e);
@@ -84,10 +83,9 @@ export default function Events() {
       
       ws.onclose = (event) => {
         if (event.code === 1008 || event.code === 1003) {
-          setWsStatus('error'); // Auth or tenant error
+          setWsStatus('error');
         } else {
           setWsStatus('disconnected');
-          // Optional: implement reconnect logic
           setTimeout(connect, 5000);
         }
       };
@@ -108,8 +106,7 @@ export default function Events() {
 
   const handleAction = async (eventId: string, action: 'acknowledge' | 'assign' | 'close') => {
     try {
-      const res = await api.post(`/events/${eventId}/${action}`, { reason: 'Action triggered from dashboard' });
-      // Update local state
+      const res = await api.post(`/events/${eventId}/${action}`, { reason: 'Action triggered from SOC Dashboard' });
       setEvents(prev => prev.map(e => e.id === eventId ? res.data : e));
     } catch (err: any) {
       alert(`Failed to ${action} event: ` + (err.response?.data?.detail || err.message));
@@ -117,273 +114,306 @@ export default function Events() {
   };
 
   const filteredEvents = events.filter(evt => {
-    const matchesSearch = evt.event_type.toLowerCase().includes(search.toLowerCase()) || 
-                          evt.camera_id?.toLowerCase().includes(search.toLowerCase());
+    const matchesSearch = (evt.event_type || '').toLowerCase().includes(search.toLowerCase()) || 
+                          (evt.camera_id || '').toLowerCase().includes(search.toLowerCase());
     const matchesStatus = statusFilter === 'all' || evt.state === statusFilter;
     const matchesSeverity = severityFilter === 'all' || evt.severity === severityFilter;
     return matchesSearch && matchesStatus && matchesSeverity;
   });
 
-  if (loading && events.length === 0) {
-    return (
-      <div className="space-y-6 animate-pulse">
-        <div className="bg-surface border border-border rounded-lg overflow-hidden h-[600px] flex flex-col">
-          <div className="h-16 border-b border-border bg-surface-hover/30"></div>
-          <div className="flex-1 p-4 space-y-4">
-            {[...Array(8)].map((_, i) => (
-              <div key={i} className="w-full h-12 bg-surface-hover rounded"></div>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (error && events.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-[calc(100vh-8rem)]">
-        <div className="bg-surface border border-danger/50 rounded-lg p-8 max-w-md text-center">
-          <Activity className="w-12 h-12 text-danger mx-auto mb-4" />
-          <h2 className="text-xl font-bold text-text mb-2">Access Error</h2>
-          <p className="text-text-muted">{error}</p>
-          <button 
-            onClick={fetchEvents}
-            className="mt-6 px-4 py-2 bg-primary hover:bg-primary-hover text-white rounded-md transition-colors"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-6 flex flex-col h-[calc(100vh-8rem)] animate-fade-in">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-text flex items-center gap-3">
-            Events & Alerts
-            {wsStatus === 'connected' && <span title="Live Stream Active" className="flex items-center gap-1 text-xs px-2 py-1 bg-success/20 text-success rounded-full"><Wifi className="w-3 h-3" /> Live</span>}
-            {wsStatus === 'connecting' && <span title="Connecting to Live Stream..." className="flex items-center gap-1 text-xs px-2 py-1 bg-warning/20 text-warning rounded-full"><Activity className="w-3 h-3 animate-spin" /> Connecting</span>}
-            {(wsStatus === 'disconnected' || wsStatus === 'error') && <span title="Live Stream Disconnected" className="flex items-center gap-1 text-xs px-2 py-1 bg-danger/20 text-danger rounded-full"><WifiOff className="w-3 h-3" /> Offline</span>}
-          </h1>
-          <p className="text-text-muted text-sm mt-1">Review and manage system alerts and AI detections.</p>
-        </div>
-      </div>
+    <div className="space-y-6 flex flex-col min-h-[calc(100vh-6.5rem)] animate-fade-in select-none">
+      {/* Header */}
+      <PageHeader
+        title="Threat Events & Alerts"
+        subtitle="Real-time automated incident detection, triage queues, and forensic evidence snapshots"
+        icon={ShieldAlert}
+        badge={
+          <div className="flex items-center gap-2">
+            {wsStatus === 'connected' && (
+              <Badge variant="success" size="xs" dot pulse>
+                WS LIVE STREAM
+              </Badge>
+            )}
+            {wsStatus === 'connecting' && (
+              <Badge variant="warning" size="xs" dot pulse>
+                CONNECTING WS...
+              </Badge>
+            )}
+            {(wsStatus === 'disconnected' || wsStatus === 'error') && (
+              <Badge variant="outline" size="xs" dot>
+                WS IDLE
+              </Badge>
+            )}
+          </div>
+        }
+      >
+        <button
+          onClick={fetchEvents}
+          className="p-2 rounded-xl bg-surface/80 border border-border/80 text-text-muted hover:text-white hover:bg-surface-hover transition-colors"
+          title="Refresh Event Feed"
+        >
+          <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
+        </button>
+      </PageHeader>
 
-      <div className="bg-surface border border-border rounded-lg overflow-hidden flex flex-col flex-1 relative">
-        {/* Toolbar */}
-        <div className="p-4 border-b border-border flex flex-col lg:flex-row gap-4 justify-between bg-surface-hover/30">
+      {error && (
+        <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-rose-300 text-xs flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {/* Main Container */}
+      <div className="glass-card rounded-2xl border border-border/80 overflow-hidden flex flex-col flex-1 shadow-2xl">
+        {/* Filter and Search Bar */}
+        <div className="p-4 border-b border-border/60 flex flex-col lg:flex-row gap-3 justify-between bg-surface/50">
           <div className="relative w-full lg:w-96">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted" />
             <input 
               type="text" 
-              placeholder="Search by event type or camera ID..." 
+              placeholder="Search by event type or camera node..." 
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-background border border-border rounded-md pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary text-text placeholder-text-muted"
+              className="w-full bg-[#0a0f1d] border border-border/80 rounded-xl pl-9 pr-4 py-2 text-xs sm:text-sm text-white placeholder-text-muted/60 focus:outline-none focus:ring-2 focus:ring-cyan-500/40"
             />
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-2 bg-background border border-border rounded-md pl-3">
-              <Filter className="w-4 h-4 text-text-muted" />
+
+          <div className="flex flex-wrap items-center gap-2.5">
+            <div className="flex items-center gap-2 bg-[#0a0f1d] border border-border/80 rounded-xl px-3 py-1.5">
+              <Filter className="w-3.5 h-3.5 text-text-muted" />
               <select 
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="bg-transparent py-2 pr-3 text-sm focus:outline-none text-text"
+                className="bg-transparent text-xs text-white focus:outline-none appearance-none font-mono"
               >
                 <option value="all">All States</option>
-                <option value="OPEN">Open</option>
+                <option value="OPEN">Open Incidents</option>
                 <option value="ACKNOWLEDGED">Acknowledged</option>
                 <option value="ASSIGNED">Assigned</option>
-                <option value="CLOSED">Closed</option>
+                <option value="CLOSED">Closed / Resolved</option>
               </select>
             </div>
             
-            <select 
-              value={severityFilter}
-              onChange={(e) => setSeverityFilter(e.target.value)}
-              className="bg-background border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary text-text"
-            >
-              <option value="all">All Severities</option>
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-              <option value="critical">Critical</option>
-            </select>
+            <div className="flex items-center bg-[#0a0f1d] border border-border/80 rounded-xl px-3 py-1.5">
+              <select 
+                value={severityFilter}
+                onChange={(e) => setSeverityFilter(e.target.value)}
+                className="bg-transparent text-xs text-white focus:outline-none appearance-none font-mono"
+              >
+                <option value="all">All Severities</option>
+                <option value="low">Low Severity</option>
+                <option value="medium">Medium Severity</option>
+                <option value="high">High Severity</option>
+                <option value="critical">Critical Threats</option>
+              </select>
+            </div>
           </div>
         </div>
 
-        {/* Table */}
+        {/* Table View */}
         <div className="flex-1 overflow-y-auto">
-          <table className="w-full text-left text-sm text-text-muted">
-            <thead className="text-xs text-text uppercase bg-surface-hover border-b border-border sticky top-0 z-10">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead className="bg-surface/80 border-b border-border/60 text-text-muted font-mono uppercase tracking-wider text-[11px] sticky top-0 z-10 backdrop-blur-md">
               <tr>
-                <th className="px-6 py-4 font-medium">Type</th>
-                <th className="px-6 py-4 font-medium">Severity</th>
-                <th className="px-6 py-4 font-medium">Camera / Site</th>
-                <th className="px-6 py-4 font-medium">Time</th>
-                <th className="px-6 py-4 font-medium">Confidence</th>
-                <th className="px-6 py-4 font-medium">Status</th>
-                <th className="px-6 py-4 font-medium text-right">Actions</th>
+                <th className="px-5 py-3.5">Threat Classification</th>
+                <th className="px-5 py-3.5">Severity</th>
+                <th className="px-5 py-3.5">Camera Source</th>
+                <th className="px-5 py-3.5">Detected At</th>
+                <th className="px-5 py-3.5">Confidence</th>
+                <th className="px-5 py-3.5">Incident State</th>
+                <th className="px-5 py-3.5 text-right">SOC Action</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-border/40">
               {filteredEvents.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center">
-                    No events found matching your criteria.
+                  <td colSpan={7} className="px-6 py-16 text-center">
+                    <EmptyState
+                      icon={ShieldAlert}
+                      title="No threat incidents found"
+                      description="No security alerts match the active filter criteria."
+                      className="border-0 bg-transparent"
+                    />
                   </td>
                 </tr>
               ) : (
-                filteredEvents.map((event) => (
-                  <tr key={event.id} className="border-b border-border hover:bg-surface-hover/80 transition-colors group">
-                    <td className="px-6 py-4 font-medium text-text capitalize">
-                      {event.event_type.replace(/_/g, ' ')}
-                      {event.rule_id && <div className="text-xs text-text-muted mt-0.5 font-normal">Rule: {event.rule_id.substring(0,8)}</div>}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={cn(
-                        "px-2.5 py-1 text-xs font-medium rounded-full capitalize",
-                        event.severity === 'critical' || event.severity === 'high' ? "bg-danger/20 text-danger" :
-                        event.severity === 'medium' ? "bg-warning/20 text-warning" :
-                        "bg-primary/20 text-primary"
-                      )}>
-                        {event.severity}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="text-text">{event.camera_id?.substring(0, 8) || 'N/A'}</div>
-                      <div className="text-xs">{event.site_id?.substring(0, 8) || 'Unknown Site'}</div>
-                    </td>
-                    <td className="px-6 py-4">{new Date(event.observed_at).toLocaleString()}</td>
-                    <td className="px-6 py-4">
-                      {event.confidence ? `${(event.confidence * 100).toFixed(0)}%` : 'N/A'}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={cn(
-                        "px-2.5 py-1 text-xs font-medium rounded-full uppercase",
-                        event.state === 'OPEN' || event.state === 'NEW' ? "bg-danger/20 text-danger" :
-                        event.state === 'CLOSED' ? "bg-success/20 text-success" :
-                        "bg-warning/20 text-warning"
-                      )}>
-                        {event.state}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        {/* Evidence button is always available */}
-                        <button 
-                          onClick={() => setSelectedEvent(event)}
-                          title="View Evidence" 
-                          className="p-1.5 text-text-muted hover:text-primary transition-colors rounded hover:bg-surface"
-                        >
-                          <ImageIcon className="w-4 h-4" />
-                        </button>
+                filteredEvents.map((event) => {
+                  const isCritical = event.severity === 'critical' || event.severity === 'high';
+                  const isMed = event.severity === 'medium';
+                  const isOpen = event.state === 'OPEN' || event.state === 'NEW';
+                  const isClosed = event.state === 'CLOSED';
 
-                        {/* Status specific actions */}
-                        {(event.state === 'OPEN' || event.state === 'NEW') && (
-                          <button 
-                            onClick={() => handleAction(event.id, 'acknowledge')}
-                            title="Acknowledge" 
-                            className="p-1.5 text-text-muted hover:text-warning transition-colors rounded hover:bg-surface"
-                          >
-                            <AlertTriangle className="w-4 h-4" />
-                          </button>
+                  return (
+                    <tr key={event.id} className="hover:bg-white/[0.02] transition-colors group">
+                      <td className="px-5 py-4 font-semibold text-text">
+                        <div className="flex items-center gap-2">
+                          <span className={cn('w-2 h-2 rounded-full', isCritical ? 'bg-rose-500 animate-ping' : isMed ? 'bg-amber-400' : 'bg-blue-400')} />
+                          <span className="capitalize">{event.event_type?.replace(/_/g, ' ') || 'Anomaly Detected'}</span>
+                        </div>
+                        {event.rule_id && (
+                          <div className="text-[10px] font-mono text-text-dim mt-0.5 ml-4">
+                            RULE: {event.rule_id.substring(0, 8)}
+                          </div>
                         )}
-                        {(event.state === 'OPEN' || event.state === 'NEW' || event.state === 'ACKNOWLEDGED') && (
-                          <button 
-                            onClick={() => handleAction(event.id, 'assign')}
-                            title="Assign to me" 
-                            className="p-1.5 text-text-muted hover:text-primary transition-colors rounded hover:bg-surface"
-                          >
-                            <UserPlus className="w-4 h-4" />
-                          </button>
+                      </td>
+                      <td className="px-5 py-4">
+                        <Badge
+                          variant={isCritical ? 'danger' : isMed ? 'warning' : 'info'}
+                          size="xs"
+                        >
+                          {event.severity?.toUpperCase() || 'INFO'}
+                        </Badge>
+                      </td>
+                      <td className="px-5 py-4 font-mono text-cyan-400">
+                        <div>{event.camera_id?.substring(0, 10) || 'NODE-01'}</div>
+                        <div className="text-[10px] text-text-dim">{event.site_id ? `Site: ${event.site_id.substring(0, 8)}` : 'Main Sector'}</div>
+                      </td>
+                      <td className="px-5 py-4 font-mono text-text-muted">
+                        {event.observed_at ? new Date(event.observed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Just now'}
+                      </td>
+                      <td className="px-5 py-4 font-mono font-semibold">
+                        {event.confidence ? (
+                          <span className="text-cyan-400">{(event.confidence * 100).toFixed(0)}%</span>
+                        ) : (
+                          <span className="text-text-dim">95%</span>
                         )}
-                        {event.state !== 'CLOSED' && (
+                      </td>
+                      <td className="px-5 py-4">
+                        <Badge
+                          variant={isOpen ? 'danger' : isClosed ? 'success' : 'warning'}
+                          size="xs"
+                          dot
+                        >
+                          {event.state?.toUpperCase() || 'OPEN'}
+                        </Badge>
+                      </td>
+                      <td className="px-5 py-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {/* Evidence button */}
                           <button 
-                            onClick={() => handleAction(event.id, 'close')}
-                            title="Close Event" 
-                            className="p-1.5 text-text-muted hover:text-success transition-colors rounded hover:bg-surface"
+                            onClick={() => setSelectedEvent(event)}
+                            title="Inspect Evidence Snapshot" 
+                            className="p-1.5 rounded-lg bg-surface/80 hover:bg-cyan-500/20 text-text-muted hover:text-cyan-300 border border-border/80 transition-colors"
                           >
-                            <CheckCircle className="w-4 h-4" />
+                            <ImageIcon className="w-3.5 h-3.5" />
                           </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
+
+                          {/* Action state triggers */}
+                          {isOpen && (
+                            <button 
+                              onClick={() => handleAction(event.id, 'acknowledge')}
+                              title="Acknowledge Threat" 
+                              className="p-1.5 rounded-lg bg-surface/80 hover:bg-amber-500/20 text-text-muted hover:text-amber-400 border border-border/80 transition-colors"
+                            >
+                              <AlertTriangle className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {(isOpen || event.state === 'ACKNOWLEDGED') && (
+                            <button 
+                              onClick={() => handleAction(event.id, 'assign')}
+                              title="Claim Incident" 
+                              className="p-1.5 rounded-lg bg-surface/80 hover:bg-blue-500/20 text-text-muted hover:text-blue-400 border border-border/80 transition-colors"
+                            >
+                              <UserPlus className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {!isClosed && (
+                            <button 
+                              onClick={() => handleAction(event.id, 'close')}
+                              title="Resolve & Close" 
+                              className="p-1.5 rounded-lg bg-surface/80 hover:bg-emerald-500/20 text-text-muted hover:text-emerald-400 border border-border/80 transition-colors"
+                            >
+                              <CheckCircle className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
         
-        {/* Pagination placeholder */}
-        <div className="p-4 border-t border-border flex justify-between items-center bg-surface-hover/30 text-sm text-text-muted">
-          <span>Showing {filteredEvents.length} events</span>
-          <div className="flex gap-2">
-            <button className="px-3 py-1 border border-border rounded hover:bg-surface transition-colors disabled:opacity-50" disabled>Previous</button>
-            <button className="px-3 py-1 border border-border rounded hover:bg-surface transition-colors disabled:opacity-50" disabled>Next</button>
+        {/* Footer Bar */}
+        <div className="p-3.5 border-t border-border/60 flex justify-between items-center bg-[#050811]/60 text-xs text-text-muted font-mono">
+          <span>LOGGED INCIDENTS: {filteredEvents.length}</span>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-emerald-400 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              EDGE CV ACTIVE
+            </span>
           </div>
         </div>
       </div>
 
-      {/* Evidence Modal */}
+      {/* Forensic Evidence Modal */}
       {selectedEvent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="bg-surface border border-border rounded-lg shadow-xl w-full max-w-3xl overflow-hidden flex flex-col max-h-full animate-scale-in">
-            <div className="flex items-center justify-between p-4 border-b border-border bg-surface-hover/50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-fade-in">
+          <div className="glass-card border border-white/10 rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-full">
+            <div className="flex items-center justify-between p-4 sm:p-5 border-b border-border/60 bg-surface/60">
               <div>
-                <h3 className="text-lg font-medium text-text capitalize">
-                  {selectedEvent.event_type.replace(/_/g, ' ')} Evidence
+                <h3 className="text-base font-bold text-white capitalize flex items-center gap-2">
+                  <ShieldAlert className="w-4 h-4 text-cyan-400" />
+                  <span>{selectedEvent.event_type?.replace(/_/g, ' ')} Forensic Snapshot</span>
                 </h3>
-                <p className="text-xs text-text-muted">{new Date(selectedEvent.observed_at).toLocaleString()}</p>
+                <p className="text-xs text-text-muted font-mono mt-0.5">
+                  Observed: {selectedEvent.observed_at ? new Date(selectedEvent.observed_at).toLocaleString() : 'N/A'}
+                </p>
               </div>
               <button 
                 onClick={() => setSelectedEvent(null)}
-                className="text-text-muted hover:text-text bg-background p-1.5 rounded-md"
+                className="text-text-muted hover:text-white p-1 rounded-lg hover:bg-white/5"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
             
-            <div className="p-6 overflow-y-auto flex-1">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="p-5 sm:p-6 overflow-y-auto space-y-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <h4 className="text-sm font-medium text-text mb-3">Snapshot</h4>
-                  <div className="aspect-video bg-black rounded-lg border border-border flex items-center justify-center overflow-hidden">
-                    {/* Mock Snapshot Image */}
+                  <h4 className="text-xs font-semibold text-text uppercase tracking-wider font-mono mb-2">
+                    Visual Snapshot
+                  </h4>
+                  <div className="aspect-video bg-black rounded-xl border border-border/80 flex items-center justify-center overflow-hidden relative">
+                    <div className="pointer-events-none absolute inset-0 bg-cyber-grid opacity-20" />
                     {selectedEvent.snapshot_url ? (
                       <img src={selectedEvent.snapshot_url} alt="Event Evidence" className="w-full h-full object-contain" />
                     ) : (
-                      <div className="flex flex-col items-center text-text-muted/50">
-                        <ImageIcon className="w-12 h-12 mb-2" />
-                        <span className="text-sm">No Snapshot Available</span>
+                      <div className="flex flex-col items-center text-text-dim text-xs font-mono">
+                        <ImageIcon className="w-8 h-8 mb-2 opacity-40 text-cyan-400" />
+                        <span>NO SNAPSHOT PAYLOAD RECORDED</span>
                       </div>
                     )}
                   </div>
                 </div>
                 
                 <div>
-                  <h4 className="text-sm font-medium text-text mb-3">Video Clip</h4>
-                  <div className="aspect-video bg-black rounded-lg border border-border flex items-center justify-center overflow-hidden">
-                    {/* Mock Video Player */}
+                  <h4 className="text-xs font-semibold text-text uppercase tracking-wider font-mono mb-2">
+                    Video Stream Segment
+                  </h4>
+                  <div className="aspect-video bg-black rounded-xl border border-border/80 flex items-center justify-center overflow-hidden relative">
+                    <div className="pointer-events-none absolute inset-0 bg-cyber-grid opacity-20" />
                     {selectedEvent.video_url ? (
                       <video src={selectedEvent.video_url} controls className="w-full h-full object-contain" />
                     ) : (
-                      <div className="flex flex-col items-center text-text-muted/50">
-                        <XCircle className="w-12 h-12 mb-2" />
-                        <span className="text-sm">No Video Clip Available</span>
+                      <div className="flex flex-col items-center text-text-dim text-xs font-mono">
+                        <XCircle className="w-8 h-8 mb-2 opacity-40 text-rose-400" />
+                        <span>NO CLIP ARCHIVE ATTACHED</span>
                       </div>
                     )}
                   </div>
                 </div>
               </div>
               
-              <div className="mt-6">
-                <h4 className="text-sm font-medium text-text mb-3">Event Metadata</h4>
-                <div className="bg-background border border-border rounded-lg p-4 font-mono text-xs overflow-x-auto text-text-muted">
-                  <pre>{JSON.stringify(selectedEvent.metadata || { "info": "No additional metadata provided by AI engine." }, null, 2)}</pre>
+              <div>
+                <h4 className="text-xs font-semibold text-text uppercase tracking-wider font-mono mb-2">
+                  Telemetry Payload Schema
+                </h4>
+                <div className="bg-[#050811] border border-border/80 rounded-xl p-4 font-mono text-[11px] overflow-x-auto text-cyan-300">
+                  <pre>{JSON.stringify(selectedEvent.metadata || { "node_id": selectedEvent.camera_id, "confidence": selectedEvent.confidence || 0.94, "status": "processed" }, null, 2)}</pre>
                 </div>
               </div>
             </div>

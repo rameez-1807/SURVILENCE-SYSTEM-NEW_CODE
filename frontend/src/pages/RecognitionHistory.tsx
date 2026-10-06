@@ -15,6 +15,11 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { PageHeader } from '../components/ui/PageHeader';
+import { Badge } from '../components/ui/Badge';
+import { StatCard } from '../components/ui/StatCard';
+import { EmptyState } from '../components/ui/EmptyState';
+import { cn } from '../utils/cn';
 
 interface RecognitionRecord {
   id: string;
@@ -82,84 +87,74 @@ export default function RecognitionHistory() {
     setPage(1);
   };
 
-  // Stats calculation
   const recognizedCount = records.filter(r => r.status === 'Recognized').length;
   const avgConfidence = records.length > 0
     ? Math.round(records.reduce((acc, curr) => acc + curr.confidence, 0) / records.length)
     : 0;
 
   return (
-    <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-surface p-6 rounded-2xl border border-border shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-primary/10 rounded-xl border border-primary/20 text-primary">
-            <History className="w-6 h-6" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-text">Face Recognition History</h1>
-            <p className="text-xs text-text-muted">Real-time audit log of biometric recognition events</p>
-          </div>
-        </div>
-
+    <div className="space-y-6 animate-fade-in select-none">
+      {/* Header */}
+      <PageHeader
+        title="Biometric Recognition Audit Logs"
+        subtitle="Forensic timestamped ledger of neural face matches and detection events"
+        icon={History}
+        badge={
+          <Badge variant="cyan" size="xs">
+            {total} TOTAL EVENTS
+          </Badge>
+        }
+      >
         <button
           onClick={fetchHistory}
           disabled={loading}
-          className="flex items-center gap-2 px-4 py-2 bg-surface-hover hover:bg-border text-text border border-border rounded-xl text-xs font-semibold transition-colors disabled:opacity-50 self-start sm:self-auto"
+          className="p-2 rounded-xl bg-surface/80 border border-border/80 text-text-muted hover:text-white hover:bg-surface-hover transition-colors"
+          title="Refresh History"
         >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          Refresh Audit Logs
+          <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
         </button>
-      </div>
+      </PageHeader>
 
-      {/* Overview Stat Cards */}
+      {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-surface p-5 rounded-xl border border-border space-y-1 shadow-sm">
-          <div className="flex items-center justify-between text-xs text-text-muted font-medium">
-            <span>Total Recognition Logs</span>
-            <ShieldCheck className="w-4 h-4 text-primary" />
-          </div>
-          <div className="text-2xl font-bold text-text">{total}</div>
-          <div className="text-[11px] text-text-muted">Filtered total events in database</div>
-        </div>
-
-        <div className="bg-surface p-5 rounded-xl border border-border space-y-1 shadow-sm">
-          <div className="flex items-center justify-between text-xs text-text-muted font-medium">
-            <span>Recognized Matches</span>
-            <UserCheck className="w-4 h-4 text-emerald-400" />
-          </div>
-          <div className="text-2xl font-bold text-emerald-400">{recognizedCount}</div>
-          <div className="text-[11px] text-text-muted">Verified employee profiles on page</div>
-        </div>
-
-        <div className="bg-surface p-5 rounded-xl border border-border space-y-1 shadow-sm">
-          <div className="flex items-center justify-between text-xs text-text-muted font-medium">
-            <span>Average Match Confidence</span>
-            <CheckCircle2 className="w-4 h-4 text-primary" />
-          </div>
-          <div className="text-2xl font-bold text-primary">{avgConfidence}%</div>
-          <div className="text-[11px] text-text-muted">Mean Euclidean distance confidence</div>
-        </div>
-
-        <div className="bg-surface p-5 rounded-xl border border-border space-y-1 shadow-sm">
-          <div className="flex items-center justify-between text-xs text-text-muted font-medium">
-            <span>Active Camera Feeds</span>
-            <Cctv className="w-4 h-4 text-amber-400" />
-          </div>
-          <div className="text-2xl font-bold text-text">Live Camera</div>
-          <div className="text-[11px] text-text-muted">Primary surveillance source</div>
-        </div>
+        <StatCard
+          title="Audit Trail Logs"
+          value={total}
+          icon={ShieldCheck}
+          accent="blue"
+          subtitle="Indexed Telemetry Rows"
+        />
+        <StatCard
+          title="Verified Matches"
+          value={recognizedCount}
+          icon={UserCheck}
+          accent="emerald"
+          trend={{ value: `${records.length > 0 ? Math.round((recognizedCount / records.length) * 100) : 0}% Ratio`, isPositive: true }}
+        />
+        <StatCard
+          title="Mean AI Confidence"
+          value={`${avgConfidence}%`}
+          icon={CheckCircle2}
+          accent="cyan"
+          subtitle="Euclidean Distance Match"
+        />
+        <StatCard
+          title="Inference Feeds"
+          value="Edge Vision"
+          icon={Cctv}
+          accent="violet"
+          subtitle="Autonomous Stream Active"
+        />
       </div>
 
       {/* Filter Control Bar */}
-      <div className="bg-surface p-4 rounded-xl border border-border space-y-3 shadow-sm">
-        <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-text-muted">
-          <Filter className="w-3.5 h-3.5 text-primary" />
-          Filter Audit Logs
+      <div className="glass-card p-4 rounded-2xl border border-border/80 space-y-3 shadow-md">
+        <div className="flex items-center gap-2 text-xs font-mono font-semibold uppercase tracking-wider text-text-muted">
+          <Filter className="w-3.5 h-3.5 text-cyan-400" />
+          <span>Audit Filters & Constraints</span>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {/* Search Employee Name/ID */}
           <div className="relative">
             <Search className="w-4 h-4 absolute left-3 top-2.5 text-text-muted" />
             <input
@@ -167,22 +162,20 @@ export default function RecognitionHistory() {
               placeholder="Search Name or Employee ID..."
               value={employeeSearch}
               onChange={(e) => { setEmployeeSearch(e.target.value); setPage(1); }}
-              className="w-full bg-background border border-border rounded-lg pl-9 pr-3 py-2 text-xs text-text placeholder-text-muted focus:outline-none focus:ring-1 focus:ring-primary"
+              className="w-full bg-[#0a0f1d] border border-border/80 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-text-muted/60 focus:outline-none focus:ring-2 focus:ring-cyan-500/40 font-mono"
             />
           </div>
 
-          {/* Filter Date */}
           <div className="relative">
             <Calendar className="w-4 h-4 absolute left-3 top-2.5 text-text-muted" />
             <input
               type="date"
               value={dateFilter}
               onChange={(e) => { setDateFilter(e.target.value); setPage(1); }}
-              className="w-full bg-background border border-border rounded-lg pl-9 pr-3 py-2 text-xs text-text placeholder-text-muted focus:outline-none focus:ring-1 focus:ring-primary"
+              className="w-full bg-[#0a0f1d] border border-border/80 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-text-muted/60 focus:outline-none focus:ring-2 focus:ring-cyan-500/40 font-mono"
             />
           </div>
 
-          {/* Filter Camera */}
           <div className="relative">
             <Cctv className="w-4 h-4 absolute left-3 top-2.5 text-text-muted" />
             <input
@@ -190,19 +183,18 @@ export default function RecognitionHistory() {
               placeholder="Filter Camera Source..."
               value={cameraFilter}
               onChange={(e) => { setCameraFilter(e.target.value); setPage(1); }}
-              className="w-full bg-background border border-border rounded-lg pl-9 pr-3 py-2 text-xs text-text placeholder-text-muted focus:outline-none focus:ring-1 focus:ring-primary"
+              className="w-full bg-[#0a0f1d] border border-border/80 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-text-muted/60 focus:outline-none focus:ring-2 focus:ring-cyan-500/40 font-mono"
             />
           </div>
 
-          {/* Filter Status */}
           <select
             value={statusFilter}
             onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-            className="bg-background border border-border rounded-lg px-3 py-2 text-xs text-text focus:outline-none focus:ring-1 focus:ring-primary"
+            className="bg-[#0a0f1d] border border-border/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/40 font-mono"
           >
             <option value="">All Statuses</option>
-            <option value="Recognized">✓ Recognized</option>
-            <option value="Unknown">⚠ Unknown</option>
+            <option value="Recognized">✓ Recognized Match</option>
+            <option value="Unknown">⚠ Unknown Subject</option>
           </select>
         </div>
 
@@ -210,19 +202,19 @@ export default function RecognitionHistory() {
           <div className="flex justify-end pt-1">
             <button
               onClick={handleResetFilters}
-              className="text-xs text-primary hover:underline font-medium"
+              className="text-xs text-cyan-400 hover:text-cyan-300 font-mono underline transition-colors"
             >
-              Clear All Filters
+              Reset All Filters
             </button>
           </div>
         )}
       </div>
 
       {/* Main Records Table */}
-      <div className="bg-surface rounded-xl border border-border overflow-hidden shadow-sm">
+      <div className="glass-card rounded-2xl border border-border/80 overflow-hidden shadow-2xl">
         {error && (
-          <div className="p-4 bg-danger/10 border-b border-danger/20 text-danger text-xs flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0" />
+          <div className="p-3.5 bg-rose-500/10 border-b border-rose-500/20 text-rose-300 text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
             <span>{error}</span>
           </div>
         )}
@@ -230,34 +222,35 @@ export default function RecognitionHistory() {
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="bg-surface-hover/50 border-b border-border text-text-muted font-semibold uppercase tracking-wider">
-                <th className="py-3.5 px-4">Employee Name</th>
-                <th className="py-3.5 px-4">Employee ID</th>
-                <th className="py-3.5 px-4">Date</th>
-                <th className="py-3.5 px-4">Time</th>
-                <th className="py-3.5 px-4">Confidence</th>
-                <th className="py-3.5 px-4">Camera Source</th>
-                <th className="py-3.5 px-4">Status</th>
+              <tr className="bg-surface/80 border-b border-border/60 text-text-muted font-mono uppercase tracking-wider text-[11px]">
+                <th className="py-3.5 px-5">Subject Profile</th>
+                <th className="py-3.5 px-5">Identifier</th>
+                <th className="py-3.5 px-5">Date</th>
+                <th className="py-3.5 px-5">Timestamp</th>
+                <th className="py-3.5 px-5">Confidence Score</th>
+                <th className="py-3.5 px-5">Camera Node</th>
+                <th className="py-3.5 px-5">Biometric State</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-border/60">
+            <tbody className="divide-y divide-border/40">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="py-8 text-center text-text-muted">
-                    <div className="flex items-center justify-center gap-2">
-                      <RefreshCw className="w-4 h-4 animate-spin text-primary" />
-                      Loading recognition audit logs...
+                  <td colSpan={7} className="py-12 text-center text-text-muted">
+                    <div className="flex items-center justify-center gap-2 font-mono text-xs">
+                      <RefreshCw className="w-4 h-4 animate-spin text-cyan-400" />
+                      <span>Reading audit database...</span>
                     </div>
                   </td>
                 </tr>
               ) : records.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-text-muted">
-                    <div className="flex flex-col items-center gap-2 max-w-sm mx-auto">
-                      <UserX className="w-8 h-8 opacity-40" />
-                      <p className="font-semibold text-text">No Recognition Events Found</p>
-                      <p className="text-[11px]">Perform live face recognition using the camera to populate audit logs.</p>
-                    </div>
+                  <td colSpan={7} className="py-16 text-center">
+                    <EmptyState
+                      icon={UserX}
+                      title="No recognition logs recorded"
+                      description="Deploy face recognition scanner to start building the forensic timeline."
+                      className="border-0 bg-transparent"
+                    />
                   </td>
                 </tr>
               ) : (
@@ -268,41 +261,40 @@ export default function RecognitionHistory() {
                   const isMatch = rec.status === 'Recognized';
 
                   return (
-                    <tr key={rec.id} className="hover:bg-surface-hover/40 transition-colors">
-                      <td className="py-3.5 px-4 font-semibold text-text">
-                        <div className="flex items-center gap-2">
-                          <span className={`w-2 h-2 rounded-full ${isMatch ? 'bg-emerald-400' : 'bg-rose-500'}`} />
-                          {rec.employee_name || 'Unknown Person'}
+                    <tr key={rec.id} className="hover:bg-white/[0.02] transition-colors group">
+                      <td className="py-3.5 px-5 font-semibold text-text">
+                        <div className="flex items-center gap-2.5">
+                          <span className={cn('w-2 h-2 rounded-full', isMatch ? 'bg-emerald-400' : 'bg-rose-500')} />
+                          <span>{rec.employee_name || 'Unknown Person'}</span>
                         </div>
                       </td>
-                      <td className="py-3.5 px-4 font-mono font-medium text-primary">
-                        {rec.employee_id || 'N/A'}
+                      <td className="py-3.5 px-5 font-mono text-cyan-400 font-semibold">
+                        {rec.employee_id || '—'}
                       </td>
-                      <td className="py-3.5 px-4 text-text-muted">{dateStr}</td>
-                      <td className="py-3.5 px-4 text-text-muted font-mono">{timeStr}</td>
-                      <td className="py-3.5 px-4 font-semibold">
-                        <div className="flex items-center gap-2">
-                          <div className="w-16 bg-surface-hover rounded-full h-1.5 overflow-hidden">
+                      <td className="py-3.5 px-5 text-text-muted font-mono">{dateStr}</td>
+                      <td className="py-3.5 px-5 text-text-muted font-mono">{timeStr}</td>
+                      <td className="py-3.5 px-5">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-20 bg-surface rounded-full h-1.5 overflow-hidden border border-border">
                             <div
-                              className={`h-full ${isMatch ? 'bg-emerald-400' : 'bg-rose-500'}`}
+                              className={cn('h-full', isMatch ? 'bg-emerald-400' : 'bg-rose-500')}
                               style={{ width: `${Math.min(100, rec.confidence)}%` }}
                             />
                           </div>
-                          <span className={isMatch ? 'text-emerald-400' : 'text-rose-400'}>
+                          <span className={cn('font-mono font-bold', isMatch ? 'text-emerald-400' : 'text-rose-400')}>
                             {Math.round(rec.confidence)}%
                           </span>
                         </div>
                       </td>
-                      <td className="py-3.5 px-4 text-text-muted">{rec.camera_name}</td>
-                      <td className="py-3.5 px-4">
-                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold ${
-                          isMatch 
-                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
-                            : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                        }`}>
-                          {isMatch ? <UserCheck className="w-3 h-3" /> : <UserX className="w-3 h-3" />}
-                          {rec.status}
-                        </span>
+                      <td className="py-3.5 px-5 text-text-muted">{rec.camera_name}</td>
+                      <td className="py-3.5 px-5">
+                        <Badge
+                          variant={isMatch ? 'success' : 'danger'}
+                          size="xs"
+                          dot
+                        >
+                          {rec.status?.toUpperCase() || 'UNKNOWN'}
+                        </Badge>
                       </td>
                     </tr>
                   );
@@ -313,26 +305,26 @@ export default function RecognitionHistory() {
         </div>
 
         {/* Server-Side Pagination Bar */}
-        <div className="p-4 border-t border-border flex items-center justify-between text-xs text-text-muted bg-surface-hover/20">
+        <div className="p-3.5 border-t border-border/60 flex items-center justify-between text-xs text-text-muted bg-[#050811]/60 font-mono">
           <div>
-            Showing Page <span className="font-bold text-text">{page}</span> of <span className="font-bold text-text">{totalPages}</span> ({total} records total)
+            PAGE <span className="font-bold text-white">{page}</span> OF <span className="font-bold text-white">{totalPages}</span> ({total} TOTAL RECORDS)
           </div>
 
           <div className="flex items-center gap-2">
             <button
               onClick={() => setPage(p => Math.max(1, p - 1))}
               disabled={page <= 1 || loading}
-              className="p-1.5 rounded-lg border border-border hover:bg-surface-hover text-text disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="p-1.5 rounded-xl border border-border hover:bg-surface-hover text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <span className="font-semibold text-text text-xs px-2">
+            <span className="font-semibold text-white px-2">
               {page} / {totalPages}
             </span>
             <button
               onClick={() => setPage(p => Math.min(totalPages, p + 1))}
               disabled={page >= totalPages || loading}
-              className="p-1.5 rounded-lg border border-border hover:bg-surface-hover text-text disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="p-1.5 rounded-xl border border-border hover:bg-surface-hover text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             >
               <ChevronRight className="w-4 h-4" />
             </button>

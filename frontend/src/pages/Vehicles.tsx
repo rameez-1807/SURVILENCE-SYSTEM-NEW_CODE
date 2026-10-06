@@ -30,6 +30,8 @@ import {
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { cn } from '../utils/cn';
+import { PageHeader } from '../components/ui/PageHeader';
+import { Badge } from '../components/ui/Badge';
 
 interface VehicleRecord {
   id: string;
@@ -934,61 +936,63 @@ export default function Vehicles() {
     <div className="space-y-6 flex flex-col min-h-0 flex-1 animate-fade-in pb-8">
 
       {/* Top Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-4">
-        <div>
-          <h2 className="text-xl font-black text-text tracking-tight flex items-center gap-2.5">
-            <Car className="w-6 h-6 text-primary" />
-            ANPR Vehicle Scanner & License Plate Database Recorder
-          </h2>
-          <p className="text-xs text-text-muted mt-1">
-            Scan vehicle number plates with live camera or photo upload, auto-extract plate numbers with OCR and TTS voice announcement, and record permanently to SQLite Database.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3 shrink-0 flex-wrap">
-          <button
-            onClick={handleToggleVoice}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-xs border cursor-pointer select-none",
-              voiceEnabled
-                ? "bg-primary/10 border-primary/30 text-primary hover:bg-primary/20"
-                : "bg-surface-hover border-border text-text-muted hover:text-text"
-            )}
-            title={voiceEnabled ? "Click to Turn Voice Announcement OFF" : "Click to Turn Voice Announcement ON"}
-          >
-            {voiceEnabled ? (
-              <>
-                <Volume2 className="w-4 h-4 text-primary animate-pulse" />
-                <span>Voice Announcement ON</span>
-              </>
-            ) : (
-              <>
-                <VolumeX className="w-4 h-4 text-text-muted" />
-                <span>Voice Announcement OFF</span>
-              </>
-            )}
-          </button>
-          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl text-xs font-bold shadow-xs">
-            <Database className="w-4 h-4" /> Auto-Save to DB Active
-          </div>
-          <button
-            onClick={handleExportCSV}
-            className="flex items-center gap-2 px-3.5 py-1.5 bg-background border border-border hover:bg-surface-hover text-text rounded-xl text-xs font-bold transition-colors shadow-xs"
-          >
-            <Download className="w-4 h-4" /> Export Report
-          </button>
-
-          {vehicles.length > 0 && (
-            <button
-              onClick={handleClearAllHistory}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-danger/10 hover:bg-danger/20 text-danger border border-danger/30 rounded-xl text-xs font-bold transition-colors shadow-xs"
-              title="Clear all vehicle history records from database"
-            >
-              <Trash2 className="w-4 h-4" /> Clear History
-            </button>
+      <PageHeader
+        title="Vehicle & ANPR Intelligence"
+        subtitle="Automatic Number Plate Recognition (OCR), vehicular telemetry, and parking perimeter logs"
+        icon={Car}
+        badge={
+          <Badge variant="cyan" size="xs" dot pulse>
+            ANPR + TESSERACT OCR
+          </Badge>
+        }
+      >
+        <button
+          onClick={handleToggleVoice}
+          className={cn(
+            "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border cursor-pointer select-none",
+            voiceEnabled
+              ? "bg-blue-500/15 border-blue-500/30 text-cyan-300"
+              : "bg-surface/80 border-border/80 text-text-muted hover:text-white"
           )}
+          title={voiceEnabled ? "Click to Turn Voice Announcement OFF" : "Click to Turn Voice Announcement ON"}
+        >
+          {voiceEnabled ? (
+            <>
+              <Volume2 className="w-4 h-4 text-cyan-400 animate-pulse" />
+              <span>Voice ON</span>
+            </>
+          ) : (
+            <>
+              <VolumeX className="w-4 h-4 text-text-muted" />
+              <span>Voice Muted</span>
+            </>
+          )}
+        </button>
+
+        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl text-xs font-bold font-mono">
+          <Database className="w-4 h-4" /> 
+          <span>Auto-Save Active</span>
         </div>
-      </div>
+
+        <button
+          onClick={handleExportCSV}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-surface/80 border border-border/80 hover:bg-surface-hover text-white rounded-xl text-xs font-semibold transition-colors"
+        >
+          <Download className="w-4 h-4" /> 
+          <span>Export CSV</span>
+        </button>
+
+        {vehicles.length > 0 && (
+          <button
+            onClick={handleClearAllHistory}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-xl text-xs font-semibold transition-colors"
+            title="Clear all vehicle history records"
+          >
+            <Trash2 className="w-4 h-4" /> 
+            <span>Purge</span>
+          </button>
+        )}
+      </PageHeader>
 
       {/* Notification Toast */}
       {scanMessage && (
