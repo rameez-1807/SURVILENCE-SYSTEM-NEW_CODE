@@ -24,11 +24,12 @@ interface ServiceStatus {
 
 const SYSTEM_SERVICES: ServiceStatus[] = [
   { name: 'FastAPI Backend Core', role: 'Inference & REST Gateway', status: 'operational', latency: 18, uptime: '99.98%' },
-  { name: 'YOLOv8 Edge Vision Node', role: 'Object & Anomaly Inference', status: 'operational', latency: 24, uptime: '99.95%' },
-  { name: 'Biometric FaceNet Engine', role: 'Face Match & Recognition', status: 'operational', latency: 32, uptime: '99.99%' },
-  { name: 'ANPR Tesseract OCR Core', role: 'Plate Extraction Pipeline', status: 'operational', latency: 28, uptime: '99.91%' },
-  { name: 'Real-time WebSocket Bus', role: 'Low-latency Alert Stream', status: 'operational', latency: 12, uptime: '99.99%' },
-  { name: 'SQLite Storage Vault', role: 'Encrypted Telemetry Ledger', status: 'operational', latency: 8, uptime: '100.0%' },
+  { name: 'MongoDB Atlas Cloud', role: 'Cluster0 NoSQL Document Store (379 Docs)', status: 'operational', latency: 45, uptime: '99.99%' },
+  { name: 'Supabase Cloud (PostgreSQL)', role: 'Multi-Tenant Relational Ledger', status: 'operational', latency: 38, uptime: '99.95%' },
+  { name: 'YOLO-World & YOLO11 Vision', role: 'Open-Vocab & COCO Inference Engine', status: 'operational', latency: 24, uptime: '99.95%' },
+  { name: 'Biometric FaceNet Engine', role: 'Face Match & Attendance Recognition', status: 'operational', latency: 32, uptime: '99.99%' },
+  { name: 'ANPR License OCR Core', role: 'Vehicle Plate Extraction Pipeline', status: 'operational', latency: 28, uptime: '99.91%' },
+  { name: 'Real-time WebSocket Bus', role: 'ByteTrack Low-Latency Stream', status: 'operational', latency: 12, uptime: '99.99%' },
 ];
 
 export default function Health() {

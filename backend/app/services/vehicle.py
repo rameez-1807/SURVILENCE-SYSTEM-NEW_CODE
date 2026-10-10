@@ -1056,6 +1056,26 @@ class VehicleService:
         await db.commit()
         await db.refresh(record)
 
+        # Sync to MongoDB Atlas Cloud
+        try:
+            from app.db.mongodb import get_async_db
+            mongo_db = get_async_db()
+            mongo_doc = {
+                "_id": str(record.id),
+                "number_plate": record.number_plate,
+                "vehicle_type": record.vehicle_type,
+                "confidence": record.confidence,
+                "camera_name": record.camera_name,
+                "location_spot": record.location_spot,
+                "evidence_reference": record.evidence_reference,
+                "timestamp": record.timestamp,
+                "created_at": record.created_at,
+            }
+            await mongo_db.vehicles.replace_one({"_id": str(record.id)}, mongo_doc, upsert=True)
+            logger.info(f"[ANPR] Vehicle '{number_plate}' synced to MongoDB Atlas 'vehicles'")
+        except Exception as me:
+            logger.debug(f"[ANPR] MongoDB sync skipped: {me}")
+
         msg = f"Vehicle plate '{number_plate}' scanned & saved to database at {location_spot}."
         return True, record, msg, detection_details
 
@@ -1086,6 +1106,25 @@ class VehicleService:
         db.add(record)
         await db.commit()
         await db.refresh(record)
+
+        try:
+            from app.db.mongodb import get_async_db
+            mongo_db = get_async_db()
+            mongo_doc = {
+                "_id": str(record.id),
+                "number_plate": record.number_plate,
+                "vehicle_type": record.vehicle_type,
+                "confidence": record.confidence,
+                "camera_name": record.camera_name,
+                "location_spot": record.location_spot,
+                "evidence_reference": record.evidence_reference,
+                "timestamp": record.timestamp,
+                "created_at": record.created_at,
+            }
+            await mongo_db.vehicles.replace_one({"_id": str(record.id)}, mongo_doc, upsert=True)
+        except Exception:
+            pass
+
         return record
 
     @classmethod
@@ -1095,6 +1134,12 @@ class VehicleService:
         """
         res = await db.execute(delete(VehicleRecord).where(VehicleRecord.id == vehicle_id))
         await db.commit()
+        try:
+            from app.db.mongodb import get_async_db
+            mongo_db = get_async_db()
+            await mongo_db.vehicles.delete_one({"_id": str(vehicle_id)})
+        except Exception:
+            pass
         return res.rowcount > 0
 
     @classmethod
@@ -1103,5 +1148,13 @@ class VehicleService:
         Deletes ALL vehicle records from the database table.
         """
         res = await db.execute(delete(VehicleRecord))
+        await db.commit()
+        try:
+            from app.db.mongodb import get_async_db
+            mongo_db = get_async_db()
+            await mongo_db.vehicles.delete_many({})
+        except Exception:
+            pass
+        return res.rowcount
         await db.commit()
         return res.rowcount

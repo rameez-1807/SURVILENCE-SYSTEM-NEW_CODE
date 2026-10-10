@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     SUPABASE_DB_URL: str = ""       # async: postgresql+asyncpg://...
     SUPABASE_DB_URL_SYNC: str = ""  # sync:  postgresql+psycopg://...
 
+    # MongoDB Atlas Cloud Database
+    MONGODB_URL: str = ""
+    MONGODB_DATABASE: str = "ai_surveillance"
+
     # Server
     SERVER_HOST: str = "0.0.0.0"
     SERVER_PORT: int = 8000

@@ -36,6 +36,24 @@ class AttendanceRepository:
         self.db.add(db_obj)
         await self.db.commit()
         await self.db.refresh(db_obj)
+
+        try:
+            from app.db.mongodb import get_async_db
+            mongo_db = get_async_db()
+            mongo_doc = {
+                "_id": str(db_obj.id),
+                "id": str(db_obj.id),
+                "employee_uuid": str(db_obj.employee_uuid),
+                "date": str(db_obj.date),
+                "first_seen": str(db_obj.first_seen) if db_obj.first_seen else None,
+                "last_seen": str(db_obj.last_seen) if db_obj.last_seen else None,
+                "camera_name": db_obj.camera_name,
+                "confidence": db_obj.confidence,
+            }
+            await mongo_db.attendance_records.replace_one({"_id": str(db_obj.id)}, mongo_doc, upsert=True)
+        except Exception:
+            pass
+
         return db_obj
 
     async def get_by_employee_and_date(self, employee_uuid: uuid.UUID, attendance_date: DateType) -> Optional[AttendanceRecord]:
@@ -58,6 +76,20 @@ class AttendanceRepository:
             record.confidence = confidence
         await self.db.commit()
         await self.db.refresh(record)
+
+        try:
+            from app.db.mongodb import get_async_db
+            mongo_db = get_async_db()
+            await mongo_db.attendance_records.update_one(
+                {"_id": str(record.id)},
+                {"$set": {
+                    "last_seen": str(record.last_seen) if record.last_seen else None,
+                    "confidence": record.confidence,
+                }}
+            )
+        except Exception:
+            pass
+
         return record
 
     async def get_by_id(self, record_id: uuid.UUID) -> Optional[AttendanceRecord]:

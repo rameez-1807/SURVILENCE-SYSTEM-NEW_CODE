@@ -149,6 +149,36 @@ async def _persist_confirmed_track(item: dict, camera_name: str = "Webcam Live")
             db.add(event)
             await db.commit()
             logger.info(f"[OBJECT-DETECTION] Confirmed track #{tid} ({raw_name}) persisted to events.")
+
+            # Also sync directly to MongoDB Atlas Cloud
+            try:
+                from app.db.mongodb import get_async_db
+                mongo_db = get_async_db()
+                mongo_doc = {
+                    "_id": str(event.id),
+                    "camera_id": str(cam.id),
+                    "camera_name": camera_name,
+                    "event_type": f"{obj_name}_detected",
+                    "object_name": raw_name,
+                    "confidence": conf,
+                    "track_id": tid,
+                    "dedupe_key": dedupe_key,
+                    "observed_at": datetime.now(timezone.utc),
+                    "model_id": "yolo-world",
+                    "model_version": "v2",
+                    "evidence_reference": f"ByteTrack #{tid}: {raw_name.title()} ({int(conf * 100)}%)",
+                    "state": "OPEN",
+                    "severity": "medium" if conf >= 0.70 else "low",
+                }
+                await mongo_db.events.update_one(
+                    {"dedupe_key": dedupe_key},
+                    {"$setOnInsert": mongo_doc},
+                    upsert=True
+                )
+                logger.info(f"[OBJECT-DETECTION] Confirmed track #{tid} synced to MongoDB Atlas 'events'")
+            except Exception as me:
+                logger.debug(f"[OBJECT-DETECTION] MongoDB sync error: {me}")
+
     except Exception as e:
         logger.debug(f"[OBJECT-DETECTION] Background persistence skipped: {e}")
 

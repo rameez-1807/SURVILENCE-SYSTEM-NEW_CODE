@@ -84,7 +84,7 @@ export default function Objects() {
   const liveConfidenceRef = useRef<number>(0.35);
 
   // Open-Vocabulary Target Classes for YOLO-World
-  const DEFAULT_OPEN_VOCAB = ['mobile phone', 'watch', 'pen', 'laptop', 'tablet', 'person', 'bag', 'bottle', 'keys'];
+  const DEFAULT_OPEN_VOCAB = ['person', 'mobile phone', 'cell phone', 'watch', 'pen', 'laptop', 'tablet', 'bag', 'bottle', 'keys'];
   const [targetClasses, setTargetClasses] = useState<string[]>(DEFAULT_OPEN_VOCAB);
   const [customClassInput, setCustomClassInput] = useState<string>('');
   const targetClassesRef = useRef<string[]>(DEFAULT_OPEN_VOCAB);
@@ -1214,9 +1214,21 @@ export default function Objects() {
                       onChange={(e) => setLiveConfidence(parseFloat(e.target.value))}
                       className="w-20 accent-cyan-500 cursor-pointer h-1.5"
                     />
-                    <span className="text-cyan-400 font-mono font-bold text-xs min-w-[32px]">
+                    <span className={cn(
+                      "font-mono font-bold text-xs min-w-[32px]",
+                      liveConfidence <= 0.40 ? "text-cyan-400" : liveConfidence <= 0.60 ? "text-amber-400" : "text-rose-400"
+                    )}>
                       {Math.round(liveConfidence * 100)}%
                     </span>
+                    {liveConfidence > 0.45 && (
+                      <button
+                        onClick={() => setLiveConfidence(0.35)}
+                        title="Reset confidence to 35% (Optimal for indoor detection)"
+                        className="px-1.5 py-0.5 text-[10px] bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 rounded-md hover:bg-cyan-500/30 font-medium transition-all cursor-pointer"
+                      >
+                        Reset 35%
+                      </button>
+                    )}
                   </div>
                 )}
 

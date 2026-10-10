@@ -28,6 +28,25 @@ class RecognitionHistoryRepository:
         self.db.add(record)
         await self.db.commit()
         await self.db.refresh(record)
+
+        try:
+            from app.db.mongodb import get_async_db
+            mongo_db = get_async_db()
+            mongo_doc = {
+                "_id": str(record.id),
+                "id": str(record.id),
+                "employee_uuid": str(record.employee_uuid) if record.employee_uuid else None,
+                "employee_id": record.employee_id,
+                "employee_name": record.employee_name,
+                "confidence": record.confidence,
+                "camera_name": record.camera_name,
+                "status": record.status,
+                "timestamp": record.timestamp,
+            }
+            await mongo_db.recognition_history.replace_one({"_id": str(record.id)}, mongo_doc, upsert=True)
+        except Exception:
+            pass
+
         return record
 
     async def list_paginated(

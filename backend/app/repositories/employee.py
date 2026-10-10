@@ -55,6 +55,24 @@ class EmployeeRepository:
         self.db.add(db_obj)
         await self.db.commit()
         await self.db.refresh(db_obj)
+
+        try:
+            from app.db.mongodb import get_async_db
+            mongo_db = get_async_db()
+            mongo_doc = {
+                "_id": str(db_obj.id),
+                "id": str(db_obj.id),
+                "name": db_obj.name,
+                "employee_id": db_obj.employee_id,
+                "department": db_obj.department,
+                "designation": db_obj.designation,
+                "face_encoding": db_obj.face_encoding,
+                "created_at": db_obj.created_at,
+            }
+            await mongo_db.employees.replace_one({"_id": str(db_obj.id)}, mongo_doc, upsert=True)
+        except Exception:
+            pass
+
         return db_obj
 
     async def delete(self, employee_id: uuid.UUID) -> bool:
@@ -62,6 +80,14 @@ class EmployeeRepository:
         stmt = delete(Employee).where(Employee.id == employee_id)
         result = await self.db.execute(stmt)
         await self.db.commit()
+
+        try:
+            from app.db.mongodb import get_async_db
+            mongo_db = get_async_db()
+            await mongo_db.employees.delete_one({"_id": str(employee_id)})
+        except Exception:
+            pass
+
         return result.rowcount > 0
 
     async def remove_face_encoding(self, employee_id: str) -> Optional[Employee]:
@@ -72,4 +98,15 @@ class EmployeeRepository:
         emp.face_encoding = None
         await self.db.commit()
         await self.db.refresh(emp)
+
+        try:
+            from app.db.mongodb import get_async_db
+            mongo_db = get_async_db()
+            await mongo_db.employees.update_one(
+                {"employee_id": employee_id},
+                {"$set": {"face_encoding": None}}
+            )
+        except Exception:
+            pass
+
         return emp
