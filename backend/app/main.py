@@ -128,6 +128,8 @@ def create_app() -> FastAPI:
 
     @app.get("/")
     @app.head("/")
+    @app.get("/health")
+    @app.head("/health")
     async def root():
         return {
             "status": "healthy",
