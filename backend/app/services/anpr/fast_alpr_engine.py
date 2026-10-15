@@ -145,22 +145,26 @@ class FastALPREngine(BaseANPREngine):
             v_classifier = self._get_vehicle_classifier()
             v_scale = min(1.0, 480 / max(w, h))
             v_img = cv2.resize(img_bgr, (int(w * v_scale), int(h * v_scale))) if v_scale < 1.0 else img_bgr
-            v_res = v_classifier(v_img, conf=0.25, verbose=False)[0]
-
-            for box in v_res.boxes:
-                cid = int(box.cls[0])
-                cname = v_res.names.get(cid, "").lower()
-                if any(k in cname for k in ["bike", "motorcycle", "scoty", "scooter", "electric-scoty"]):
-                    vehicle_type = "motorcycle"
-                    break
-                elif any(k in cname for k in ["truck", "lorry", "jcb", "trailer", "pickup"]):
-                    vehicle_type = "truck"
-                    break
-                elif "bus" in cname:
-                    vehicle_type = "bus"
-                    break
-                elif any(k in cname for k in ["car", "auto", "taxi", "jeep"]):
-                    vehicle_type = "car"
+            v_res_list = list(v_classifier(v_img, conf=0.25, verbose=False))
+            if v_res_list:
+                v_res = v_res_list[0]
+                boxes = getattr(v_res, "boxes", None)
+                names = getattr(v_res, "names", {}) or {}
+                if boxes is not None:
+                    for box in boxes:
+                        cid = int(box.cls[0])
+                        cname = names.get(cid, "").lower() if isinstance(names, dict) else ""
+                        if any(k in cname for k in ["bike", "motorcycle", "scoty", "scooter", "electric-scoty"]):
+                            vehicle_type = "motorcycle"
+                            break
+                        elif any(k in cname for k in ["truck", "lorry", "jcb", "trailer", "pickup"]):
+                            vehicle_type = "truck"
+                            break
+                        elif "bus" in cname:
+                            vehicle_type = "bus"
+                            break
+                        elif any(k in cname for k in ["car", "auto", "taxi", "jeep"]):
+                            vehicle_type = "car"
         except Exception as e:
             logger.debug(f"[FastALPR] Vehicle classification warning: {e}")
 
@@ -220,7 +224,12 @@ class FastALPREngine(BaseANPREngine):
                     raw_txt = ocr_out.text
                     best_raw = raw_txt
                     c_vals = ocr_out.confidence
-                    c_conf = float(np.mean(c_vals)) if isinstance(c_vals, list) and c_vals else float(c_vals or 0.8)
+                    if isinstance(c_vals, list) and c_vals:
+                        c_conf = float(np.mean(c_vals))
+                    elif isinstance(c_vals, (int, float)):
+                        c_conf = float(c_vals)
+                    else:
+                        c_conf = 0.8
                     cleaned, is_v = self._clean_indian_plate(raw_txt)
                     best_plate = cleaned
                     is_valid_format = is_v

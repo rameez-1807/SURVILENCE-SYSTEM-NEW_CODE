@@ -1,6 +1,8 @@
 {
   "extraPaths": [
     "C:/Users/RAMEEZ/AppData/Roaming/Python/Python314/site-packages",
-    "."
+    "c:/Users/RAMEEZ/venv/Lib/site-packages",
+    ".",
+    "yolov9"
   ]
 }

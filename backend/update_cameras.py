@@ -4,7 +4,7 @@ import datetime
 
 db_path = 'ai_surveillance.db'
 conn = sqlite3.connect(db_path)
-now = datetime.datetime.utcnow().isoformat()
+now = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 # Update existing camera to active
 conn.execute("UPDATE cameras SET status = 'active' WHERE name = 'Live Camera Scanner'")

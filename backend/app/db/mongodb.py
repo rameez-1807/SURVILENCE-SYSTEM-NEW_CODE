@@ -13,11 +13,11 @@ Provides collections for:
 """
 
 import logging
-from typing import Optional
-from pymongo import MongoClient
-from pymongo.collection import Collection
-from pymongo.database import Database
-import motor.motor_asyncio
+from typing import Optional, Dict, Any
+from pymongo import MongoClient  # type: ignore
+from pymongo.collection import Collection  # type: ignore
+from pymongo.database import Database  # type: ignore
+import motor.motor_asyncio  # type: ignore
 
 from app.core.config import settings
 
@@ -46,7 +46,7 @@ def get_async_mongo_client() -> motor.motor_asyncio.AsyncIOMotorClient:
         except ImportError:
             ca_file = None
 
-        kwargs = {
+        kwargs: Dict[str, Any] = {
             "serverSelectionTimeoutMS": 5000,
             "connectTimeoutMS": 5000,
         }
@@ -80,7 +80,7 @@ def get_sync_mongo_client() -> MongoClient:
         except ImportError:
             ca_file = None
 
-        kwargs = {
+        kwargs: Dict[str, Any] = {
             "serverSelectionTimeoutMS": 5000,
             "connectTimeoutMS": 5000,
         }

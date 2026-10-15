@@ -2,7 +2,7 @@
 import sqlite3
 import uuid
 import bcrypt
-from datetime import datetime
+from datetime import datetime, timezone
 
 db_path = 'ai_surveillance.db'
 conn = sqlite3.connect(db_path)
@@ -21,7 +21,7 @@ hashed = bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
 
 tenant_id = uuid.UUID('bb398bec-8429-44db-b9ec-b04c3ac81c36').hex
 user_id = uuid.uuid4().hex
-now = datetime.utcnow().isoformat()
+now = datetime.now(timezone.utc).isoformat()
 
 # Check if tenant exists
 cursor = conn.execute("SELECT id FROM tenants WHERE id = ?", (tenant_id,))

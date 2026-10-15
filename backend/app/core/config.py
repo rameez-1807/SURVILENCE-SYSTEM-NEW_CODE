@@ -103,7 +103,7 @@ class Settings(BaseSettings):
         import os
         raw_url = os.environ.get("DATABASE_URL") or os.environ.get("SUPABASE_DB_URL") or self.SUPABASE_DB_URL
         if raw_url:
-            url = str(raw_url).replace("\r", "").replace("\n", "").strip().strip("'\"").strip()
+            url = raw_url.replace("\r", "").replace("\n", "").strip().strip("'\"").strip()
             if url.startswith("postgres://"):
                 url = url.replace("postgres://", "postgresql+asyncpg://", 1)
             elif url.startswith("postgresql://") and not url.startswith("postgresql+"):
@@ -128,7 +128,7 @@ class Settings(BaseSettings):
         import os
         raw_url = os.environ.get("DATABASE_URL_SYNC") or os.environ.get("SUPABASE_DB_URL_SYNC") or self.SUPABASE_DB_URL_SYNC
         if raw_url:
-            url = str(raw_url).replace("\r", "").replace("\n", "").strip().strip("'\"").strip()
+            url = raw_url.replace("\r", "").replace("\n", "").strip().strip("'\"").strip()
             if url.startswith("postgres://"):
                 url = url.replace("postgres://", "postgresql+psycopg://", 1)
             elif url.startswith("postgresql://") and not url.startswith("postgresql+"):

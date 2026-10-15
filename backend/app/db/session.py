@@ -5,6 +5,7 @@ Configures async SQLAlchemy engine and session factory.
 Supports both local SQLite and Supabase PostgreSQL (via PgBouncer pooler).
 """
 
+from typing import Any, AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
@@ -13,7 +14,7 @@ from app.core.config import settings
 _is_postgres = settings.DATABASE_URL.startswith("postgresql")
 
 # Build engine kwargs based on backend
-_engine_kwargs = {
+_engine_kwargs: dict[str, Any] = {
     "echo": settings.DEBUG,
     "pool_pre_ping": True,  # Detect stale connections automatically
 }
@@ -52,7 +53,7 @@ async_session_factory = async_sessionmaker(
 )
 
 
-async def get_db() -> AsyncSession:
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
     Dependency that provides an async database session.
 

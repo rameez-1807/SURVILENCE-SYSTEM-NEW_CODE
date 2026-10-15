@@ -61,14 +61,16 @@ class YOLOEasyOCREngine(BaseANPREngine):
 
         elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
 
+        bbox = det.get("bounding_box")
+        crop_b64 = det.get("cropped_plate_base64")
         return ANPRDetectionResult(
-            plate=det.get("plate", ""),
-            raw_plate=det.get("raw_ocr_text") or det.get("plate", ""),
-            confidence=det.get("confidence", 0.0),
-            vehicle_type=det.get("vehicle_type", "car"),
-            bounding_box=det.get("bounding_box"),
-            cropped_plate_base64=det.get("cropped_plate_base64"),
-            is_valid_format=det.get("is_valid_format", False),
+            plate=str(det.get("plate") or ""),
+            raw_plate=str(det.get("raw_ocr_text") or det.get("plate") or ""),
+            confidence=float(det.get("confidence") or 0.0),
+            vehicle_type=str(det.get("vehicle_type") or "car"),
+            bounding_box=bbox if isinstance(bbox, list) else None,
+            cropped_plate_base64=str(crop_b64) if crop_b64 else None,
+            is_valid_format=bool(det.get("is_valid_format", False)),
             engine=self.engine_id,
             processing_time_ms=elapsed_ms
         )

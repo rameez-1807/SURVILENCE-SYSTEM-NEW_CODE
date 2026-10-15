@@ -57,7 +57,7 @@ async def get_current_user(
         fake_user = User()
         fake_user.id = uuid.UUID("00000000-0000-0000-0000-000000000001")
         fake_user.email = "demo@demo.com"
-        fake_user.full_name = "Demo User"
+        setattr(fake_user, "full_name", "Demo User")
         fake_user.is_active = True
         fake_user.memberships = []
         return fake_user

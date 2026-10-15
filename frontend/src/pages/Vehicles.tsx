@@ -58,9 +58,9 @@ interface VehicleStats {
 }
 
 const LOCATION_OPTIONS = [
-  { id: 'Apartment Parking', label: 'Apartment Parking', category: 'Parking Area', icon: ParkingSquare },
-  { id: 'Apartment Main Entrance', label: 'Apartment Main Entrance', category: 'Apartment Gate', icon: Building },
-  { id: 'Apartment Exit Gate', label: 'Apartment Exit Gate', category: 'Apartment Gate', icon: Building },
+  { id: '', label: 'Select Spot (Optional)', category: 'None', icon: MapPin },
+  { id: 'Main Entrance', label: 'Main Entrance', category: 'Gate', icon: Building },
+  { id: 'Exit Gate', label: 'Exit Gate', category: 'Gate', icon: Building },
   { id: 'Basement B1 Parking', label: 'Basement B1 Parking', category: 'Parking Area', icon: ParkingSquare },
   { id: 'Basement B2 Parking', label: 'Basement B2 Parking', category: 'Parking Area', icon: ParkingSquare },
   { id: 'Visitor Parking Zone', label: 'Visitor Parking Zone', category: 'Parking Area', icon: ParkingSquare },
@@ -109,7 +109,7 @@ export default function Vehicles() {
   const [quickVehicleType, setQuickVehicleType] = useState('car');
 
   // Selected Location Spot for Live Scan
-  const [selectedLocationSpot, setSelectedLocationSpot] = useState('Apartment Parking');
+  const [selectedLocationSpot, setSelectedLocationSpot] = useState('');
 
   // Filters & Search
   const [search, setSearch] = useState('');
@@ -257,7 +257,9 @@ export default function Vehicles() {
     }
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
-      const textToSay = `Vehicle number plate ${plateNumber.split('').join(' ')} scanned and saved at Apartment Parking`;
+      const textToSay = selectedLocationSpot 
+        ? `Vehicle number plate ${plateNumber.split('').join(' ')} scanned and saved at ${selectedLocationSpot}`
+        : `Vehicle number plate ${plateNumber.split('').join(' ')} scanned and saved`;
       const utterance = new SpeechSynthesisUtterance(textToSay);
       utterance.rate = 1.0;
       utterance.pitch = 1.0;
@@ -1147,7 +1149,7 @@ export default function Vehicles() {
                 >
                   {LOCATION_OPTIONS.map(opt => (
                     <option key={opt.id} value={opt.id}>
-                      {opt.category === 'Parking Area' ? '🅿️ ' : '🏢 '} {opt.label}
+                      {opt.id ? (opt.category === 'Parking Area' ? '🅿️ ' : '🏢 ') : ''}{opt.label}
                     </option>
                   ))}
                 </select>
@@ -1408,11 +1410,11 @@ export default function Vehicles() {
                           )}
                           <span className="text-[10px] bg-black text-amber-300 px-2 py-0.5 rounded font-sans font-bold">SAVED TO DB</span>
                         </div>
-                      ) : (
+                      ) : selectedLocationSpot && selectedLocationSpot !== 'Apartment Parking' ? (
                         <span className="text-[10px] font-mono text-emerald-300/90 bg-black/70 px-2.5 py-0.5 rounded-full border border-emerald-500/30">
                           Spot: {selectedLocationSpot}
                         </span>
-                      )}
+                      ) : null}
                     </div>
                   )}
                 </>
@@ -1565,9 +1567,8 @@ export default function Vehicles() {
                   className="bg-transparent text-text focus:outline-none font-semibold text-xs cursor-pointer"
                 >
                   <option value="all" className="bg-surface text-text">All Locations</option>
-                  <option value="Apartment Parking" className="bg-surface text-text">Apartment Parking</option>
-                  <option value="Apartment Main Entrance" className="bg-surface text-text">Apartment Main Entrance</option>
-                  <option value="Apartment Exit Gate" className="bg-surface text-text">Apartment Exit Gate</option>
+                  <option value="Main Entrance" className="bg-surface text-text">Main Entrance</option>
+                  <option value="Exit Gate" className="bg-surface text-text">Exit Gate</option>
                   <option value="Basement B1 Parking" className="bg-surface text-text">Basement B1 Parking</option>
                   <option value="Basement B2 Parking" className="bg-surface text-text">Basement B2 Parking</option>
                   <option value="Visitor Parking Zone" className="bg-surface text-text">Visitor Parking Zone</option>
@@ -1723,10 +1724,12 @@ export default function Vehicles() {
                               <Video className="w-3 h-3 text-primary shrink-0" />
                               {v.camera_name || 'Live ANPR Camera'}
                             </span>
-                            <span className="inline-flex items-center gap-1 text-emerald-400 text-[11px] font-medium pl-0.5">
-                              <MapPin className="w-3 h-3 shrink-0" />
-                              {v.location_spot || 'Apartment Parking'}
-                            </span>
+                            {v.location_spot && v.location_spot !== 'Apartment Parking' && (
+                              <span className="inline-flex items-center gap-1 text-emerald-400 text-[11px] font-medium pl-0.5">
+                                <MapPin className="w-3 h-3 shrink-0" />
+                                {v.location_spot}
+                              </span>
+                            )}
                           </div>
                         </td>
 
@@ -1828,7 +1831,9 @@ export default function Vehicles() {
                 <span className="text-text-muted">Location Spot</span>
                 <span className="font-bold text-emerald-400 flex items-center gap-1">
                   <MapPin className="w-3.5 h-3.5" />
-                  {selectedVehicleDetail.location_spot || 'Apartment Parking'}
+                  {selectedVehicleDetail.location_spot && selectedVehicleDetail.location_spot !== 'Apartment Parking'
+                    ? selectedVehicleDetail.location_spot
+                    : 'Not Specified'}
                 </span>
               </div>
               <div className="flex justify-between items-center py-1.5 border-b border-border/40">

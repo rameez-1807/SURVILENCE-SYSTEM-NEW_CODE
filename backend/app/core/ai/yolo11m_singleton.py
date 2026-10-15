@@ -121,6 +121,14 @@ def detect_frame(
     # Ensure model is loaded (safety fallback)
     if _model is None:
         load_model()
+    if _model is None:
+        return {
+            "detections": [],
+            "model": "yolo11m",
+            "inference_ms": 0,
+            "frame_width": 0,
+            "frame_height": 0,
+        }
 
     if not isinstance(frame, np.ndarray) or frame.size == 0:
         return {

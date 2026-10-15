@@ -105,7 +105,7 @@ def load_model() -> None:
 
         try:
             import torch
-            from models.experimental import attempt_load
+            from models.experimental import attempt_load  # type: ignore
 
             # Multi-core CPU thread optimization
             if _device == "cpu":
@@ -299,6 +299,8 @@ def _run_raw_inference(
 
     if _model is None:
         load_model()
+    if _model is None:
+        return np.empty((0, 4)), np.empty((0,)), np.empty((0,), dtype=int), 0.0
 
     if not isinstance(frame, np.ndarray) or frame.size == 0:
         return np.empty((0, 4)), np.empty((0,)), np.empty((0,), dtype=int), 0.0
@@ -307,8 +309,8 @@ def _run_raw_inference(
     start = time.perf_counter()
 
     import torch
-    from utils.general import non_max_suppression, scale_boxes
-    from utils.augmentations import letterbox
+    from utils.general import non_max_suppression, scale_boxes  # type: ignore
+    from utils.augmentations import letterbox  # type: ignore
 
     # Optimize image size on CPU for high FPS real-time webcam detection
     actual_imgsz = imgsz

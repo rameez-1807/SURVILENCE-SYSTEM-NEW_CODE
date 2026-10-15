@@ -317,6 +317,7 @@ async def object_detection_ws(websocket: WebSocket):
             _evict_other_models(req_model)
 
             # Dispatch inference
+            target_imgsz = int(cfg["imgsz"])
             try:
                 if req_model in ("yoloe", "yoloe-pf", "yoloe_autodetect", "yoloe-autodetect"):
                     # Genuine YOLOE Prompt-Free with ByteTrack Tracking (Zero-prompt Auto Detect)
@@ -325,7 +326,7 @@ async def object_detection_ws(websocket: WebSocket):
                         session_id=session_id,
                         frame=frame,
                         confidence=conf,
-                        imgsz=cfg["imgsz"],
+                        imgsz=target_imgsz,
                         classes=req_classes,
                     )
                 elif req_model in ("yolov9", "yolov9-c", "yolo9"):
@@ -335,7 +336,7 @@ async def object_detection_ws(websocket: WebSocket):
                         session_id=session_id,
                         frame=frame,
                         confidence=conf,
-                        imgsz=cfg["imgsz"],
+                        imgsz=target_imgsz,
                     )
                 elif req_model in ("yoloworld", "yolo-world", "open_vocab"):
                     # YOLO-World Open Vocabulary with ByteTrack Tracking
@@ -344,7 +345,7 @@ async def object_detection_ws(websocket: WebSocket):
                         session_id=session_id,
                         frame=frame,
                         confidence=conf,
-                        imgsz=cfg["imgsz"],
+                        imgsz=target_imgsz,
                         classes=req_classes,
                     )
                 elif req_model in ("yolo11m", "yolo11", "yolo11m-coco"):
@@ -353,7 +354,7 @@ async def object_detection_ws(websocket: WebSocket):
                         yolo11m_detect,
                         frame,
                         confidence=conf,
-                        imgsz=cfg["imgsz"],
+                        imgsz=target_imgsz,
                     )
                     result = raw_res
                     result["new_confirmed"] = []

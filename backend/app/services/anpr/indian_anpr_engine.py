@@ -135,6 +135,7 @@ class IndianANPREngine(BaseANPREngine):
 
         detector = self._get_detector()
         reader = self._get_reader()
+        ocr_res = None
 
         # 1. Vehicle Classification (Car vs Bike/Motorcycle vs Truck vs Bus)
         vehicle_type = "car"
@@ -143,22 +144,26 @@ class IndianANPREngine(BaseANPREngine):
             # Fast downscaled inference for vehicle type
             v_scale = min(1.0, 480 / max(w, h))
             v_img = cv2.resize(img_bgr, (int(w * v_scale), int(h * v_scale))) if v_scale < 1.0 else img_bgr
-            v_res = v_classifier(v_img, conf=0.25, verbose=False)[0]
-
-            for box in v_res.boxes:
-                cid = int(box.cls[0])
-                cname = v_res.names.get(cid, "").lower()
-                if any(k in cname for k in ["bike", "motorcycle", "scoty", "scooter", "electric-scoty"]):
-                    vehicle_type = "motorcycle"
-                    break
-                elif any(k in cname for k in ["truck", "lorry", "jcb", "trailer", "pickup"]):
-                    vehicle_type = "truck"
-                    break
-                elif "bus" in cname:
-                    vehicle_type = "bus"
-                    break
-                elif any(k in cname for k in ["car", "auto", "taxi", "jeep"]):
-                    vehicle_type = "car"
+            v_res_list = list(v_classifier(v_img, conf=0.25, verbose=False))
+            if v_res_list:
+                v_res = v_res_list[0]
+                boxes = getattr(v_res, "boxes", None)
+                names = getattr(v_res, "names", {}) or {}
+                if boxes is not None:
+                    for box in boxes:
+                        cid = int(box.cls[0])
+                        cname = names.get(cid, "").lower() if isinstance(names, dict) else ""
+                        if any(k in cname for k in ["bike", "motorcycle", "scoty", "scooter", "electric-scoty"]):
+                            vehicle_type = "motorcycle"
+                            break
+                        elif any(k in cname for k in ["truck", "lorry", "jcb", "trailer", "pickup"]):
+                            vehicle_type = "truck"
+                            break
+                        elif "bus" in cname:
+                            vehicle_type = "bus"
+                            break
+                        elif any(k in cname for k in ["car", "auto", "taxi", "jeep"]):
+                            vehicle_type = "car"
         except Exception as e:
             logger.debug(f"[IndianANPR] Vehicle classification warning: {e}")
 
@@ -168,23 +173,26 @@ class IndianANPREngine(BaseANPREngine):
             # Resize appropriately for YOLO inference if large
             scale_yolo = min(1.0, 960 / max(w, h))
             det_img = cv2.resize(img_bgr, (int(w * scale_yolo), int(h * scale_yolo))) if scale_yolo < 1.0 else img_bgr
-            p_res = detector(det_img, conf=0.20, verbose=False)[0]
+            p_res_list = list(detector(det_img, conf=0.20, verbose=False))
+            if p_res_list:
+                p_res = p_res_list[0]
+                p_boxes = getattr(p_res, "boxes", None)
+                if p_boxes is not None:
+                    for box in p_boxes:
+                        conf = float(box.conf[0])
+                        bx1, by1, bx2, by2 = map(int, box.xyxy[0])
+                        # Map coordinates back to original frame
+                        x1 = max(0, int(bx1 / scale_yolo))
+                        y1 = max(0, int(by1 / scale_yolo))
+                        x2 = min(w, int(bx2 / scale_yolo))
+                        y2 = min(h, int(by2 / scale_yolo))
 
-            for box in p_res.boxes:
-                conf = float(box.conf[0])
-                bx1, by1, bx2, by2 = map(int, box.xyxy[0])
-                # Map coordinates back to original frame
-                x1 = max(0, int(bx1 / scale_yolo))
-                y1 = max(0, int(by1 / scale_yolo))
-                x2 = min(w, int(bx2 / scale_yolo))
-                y2 = min(h, int(by2 / scale_yolo))
-
-                pw, ph = x2 - x1, y2 - y1
-                # Support both car wide plates and bike squarish plates
-                if pw >= 20 and ph >= 10:
-                    aspect = pw / max(1, ph)
-                    if 0.7 <= aspect <= 7.0:
-                        plate_boxes.append((conf, [x1, y1, x2, y2]))
+                        pw, ph = x2 - x1, y2 - y1
+                        # Support both car wide plates and bike squarish plates
+                        if pw >= 20 and ph >= 10:
+                            aspect = pw / max(1, ph)
+                            if 0.7 <= aspect <= 7.0:
+                                plate_boxes.append((conf, [x1, y1, x2, y2]))
         except Exception as e:
             logger.warning(f"[IndianANPR] Plate detector error: {e}")
 
@@ -276,5 +284,5 @@ class IndianANPREngine(BaseANPREngine):
             is_valid_format=is_valid_format,
             engine=self.engine_id,
             processing_time_ms=elapsed_ms,
-            metadata={"two_line": ocr_res.get("two_line", False) if 'ocr_res' in locals() and ocr_res else False}
+            metadata={"two_line": ocr_res.get("two_line", False) if isinstance(ocr_res, dict) else False}
         )

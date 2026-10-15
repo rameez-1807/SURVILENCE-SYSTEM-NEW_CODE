@@ -146,6 +146,9 @@ def set_classes_internal(classes: List[str]) -> None:
     if _active_classes_tuple == clean_tuple:
         return
 
+    if _model is None:
+        return
+
     try:
         _model.set_classes(cleaned)
         _active_classes = list(cleaned)
@@ -352,10 +355,7 @@ def track_frame(
     """
     global _model, _loaded, _device
 
-    if not _loaded or _model is None:
-        load_model()
-
-    empty_result = {
+    empty_result: dict = {
         "detections": [],
         "counts": {},
         "new_confirmed": [],
@@ -365,6 +365,11 @@ def track_frame(
         "frame_height": 0,
         "timestamp": time.time(),
     }
+
+    if not _loaded or _model is None:
+        load_model()
+    if _model is None:
+        return empty_result
 
     if not isinstance(frame, np.ndarray) or frame.size == 0:
         return empty_result

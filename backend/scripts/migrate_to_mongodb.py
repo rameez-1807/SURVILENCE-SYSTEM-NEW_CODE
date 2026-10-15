@@ -18,7 +18,8 @@ And migrates them cleanly into MongoDB Atlas under database 'ai_surveillance'.
 import asyncio
 import sys
 from pathlib import Path
-from datetime import datetime, date, time
+from datetime import datetime, date, time, timezone
+from typing import Optional
 import uuid
 
 # Add backend to sys.path
@@ -64,7 +65,7 @@ def row_to_dict(row):
     return d
 
 
-async def run_migration(custom_url: str = None):
+async def run_migration(custom_url: Optional[str] = None):
     print("=" * 60)
     print("MIGRATING AI SURVEILLANCE DATABASE TO MONGODB ATLAS")
     print("=" * 60)
@@ -161,7 +162,7 @@ async def run_migration(custom_url: str = None):
         print(f"  [Notice] Relational DB extract note: {e}")
 
     # 3. Seed starter documents for every collection that is still empty
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     if mongo_db.tenants.count_documents({}) == 0:
         mongo_db.tenants.insert_one({

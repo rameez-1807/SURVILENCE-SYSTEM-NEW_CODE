@@ -194,7 +194,7 @@ class DetectionPipeline:
                         for evt in events:
                             # Attach evidence & track_id
                             if snapshot_path:
-                                evt.evidence_reference = snapshot_path
+                                setattr(evt, "evidence_reference", snapshot_path)
                             metrics_collector.record_event()
                             confirmed_events.append(evt)
 

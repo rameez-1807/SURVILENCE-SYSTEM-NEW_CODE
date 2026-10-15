@@ -5,6 +5,7 @@ Main application entry point. Configures the FastAPI app,
 registers routers, and sets up Swagger/OpenAPI documentation.
 """
 
+import asyncio
 import os
 from contextlib import asynccontextmanager
 

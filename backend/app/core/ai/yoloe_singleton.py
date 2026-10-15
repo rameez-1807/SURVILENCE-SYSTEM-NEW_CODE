@@ -383,9 +383,6 @@ def track_frame(
     """
     global _model, _loaded, _device
 
-    if not _loaded or _model is None:
-        load_model()
-
     empty_result = {
         "detections": [],
         "counts": {},
@@ -396,6 +393,11 @@ def track_frame(
         "frame_height": 0,
         "timestamp": time.time(),
     }
+
+    if not _loaded or _model is None:
+        load_model()
+    if _model is None:
+        return empty_result
 
     if not isinstance(frame, np.ndarray) or frame.size == 0:
         return empty_result

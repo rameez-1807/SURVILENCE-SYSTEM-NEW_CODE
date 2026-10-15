@@ -612,7 +612,7 @@ class VehicleService:
                 logger.warning(f"[ANPR] Plate YOLO inference error: {e}")
 
         # Step 3: Vehicle classification fallback if plate was found but vehicle type wasn't determined by best.pt
-        if best_valid and not vehicle_candidates and vehicle_model is not None:
+        if best_valid and not vehicle_candidates and vehicle_model is not None and best_box is not None:
             try:
                 v_results = vehicle_model(img_yolo, imgsz=320, verbose=False, conf=0.20, classes=cls.VEHICLE_CLASSES)
                 px1, py1, px2, py2 = best_box
@@ -631,7 +631,7 @@ class VehicleService:
                         margin_x = (vx2 - vx1) * 0.20
                         margin_y = (vy2 - vy1) * 0.20
                         if (vx1 - margin_x) <= px_center <= (vx2 + margin_x) and (vy1 - margin_y) <= py_center <= (vy2 + margin_y):
-                            if best_enclosing_veh is None or v_conf > best_enclosing_veh["conf"]:
+                            if best_enclosing_veh is None or v_conf > float(best_enclosing_veh["conf"]):
                                 best_enclosing_veh = {"class": class_name, "conf": v_conf}
 
                 if best_enclosing_veh:
@@ -848,7 +848,8 @@ class VehicleService:
         number_plate = ""
         confidence = 0.95
         detected_type = vehicle_type.lower() if vehicle_type else "car"
-        detection_details = {
+        img_bgr: Optional[np.ndarray] = None
+        detection_details: Dict[str, Any] = {
             "bounding_box": None,
             "cropped_plate_base64": None,
             "is_valid_format": False,
@@ -991,7 +992,7 @@ class VehicleService:
                 with open(evidence_path, "wb") as f:
                     f.write(base64.b64decode(crop_b64))
                 saved_physical_file = True
-            elif 'img_bgr' in locals() and img_bgr is not None:
+            elif img_bgr is not None:
                 cv2.imwrite(str(evidence_path), img_bgr)
                 saved_physical_file = True
         except Exception as e:
@@ -1158,7 +1159,8 @@ class VehicleService:
             await mongo_db.vehicles.delete_one({"_id": str(vehicle_id)})
         except Exception:
             pass
-        return res.rowcount > 0
+        rowcount = getattr(res, "rowcount", 0) or 0
+        return rowcount > 0
 
     @classmethod
     async def clear_all_vehicles(cls, db: AsyncSession) -> int:
@@ -1173,6 +1175,5 @@ class VehicleService:
             await mongo_db.vehicles.delete_many({})
         except Exception:
             pass
-        return res.rowcount
-        await db.commit()
-        return res.rowcount
+        rowcount = getattr(res, "rowcount", 0) or 0
+        return int(rowcount)
