@@ -1,6 +1,22 @@
 {
   "extraPaths": [
     "C:/Users/RAMEEZ/AppData/Roaming/Python/Python314/site-packages",
-    "backend"
+    "backend",
+    "backend/yolov9"
+  ],
+  "include": [
+    "backend/app",
+    "backend/scripts",
+    "backend/tests"
+  ],
+  "exclude": [
+    "backend/yolov9",
+    "**/yolov9/**",
+    "**/__pycache__"
+  ],
+  "ignore": [
+    "backend/yolov9",
+    "**/yolov9/**"
   ]
 }
+

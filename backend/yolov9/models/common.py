@@ -444,7 +444,9 @@ class ASPP(torch.nn.Module):
             if isinstance(m, torch.nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
                 m.weight.data.normal_(0, math.sqrt(2. / n))
-                m.bias.data.fill_(0)
+                if m.bias is not None:
+                    m.bias.data.fill_(0)
+
 
     def forward(self, x):
         avg_x = self.gap(x)
@@ -911,7 +913,8 @@ class DetectMultiBackend(nn.Module):
             y = self.model.predict({'image': im})  # coordinates are xywh normalized
             if 'confidence' in y:
                 box = xywh2xyxy(y['coordinates'] * [[w, h, w, h]])  # xyxy pixels
-                conf, cls = y['confidence'].max(1), y['confidence'].argmax(1).astype(np.float)
+                conf, cls = y['confidence'].max(1), y['confidence'].argmax(1).astype(float)
+
                 y = np.concatenate((box, conf.reshape(-1, 1), cls.reshape(-1, 1)), 1)
             else:
                 y = list(reversed(y.values()))  # reversed for segmentation models (pred, proto)
@@ -1009,9 +1012,10 @@ class AutoShape(nn.Module):
             m.inplace = False  # Detect.inplace=False for safe multithread inference
             m.export = True  # do not output loss values
 
-    def _apply(self, fn):
+    def _apply(self, fn, recurse=True):
         # Apply to(), cpu(), cuda(), half() to model tensors that are not parameters or registered buffers
-        self = super()._apply(fn)
+        self = super()._apply(fn, recurse=recurse)
+
         from models.yolo import Detect, Segment
         if self.pt:
             m = self.model.model.model[-1] if self.dmb else self.model.model[-1]  # Detect()
@@ -1048,7 +1052,8 @@ class AutoShape(nn.Module):
             for i, im in enumerate(ims):
                 f = f'image{i}'  # filename
                 if isinstance(im, (str, Path)):  # filename or uri
-                    im, f = Image.open(requests.get(im, stream=True).raw if str(im).startswith('http') else im), im
+                    im, f = Image.open(requests.get(str(im), stream=True).raw if str(im).startswith('http') else im), im
+
                     im = np.asarray(exif_transpose(im))
                 elif isinstance(im, Image.Image):  # PIL Image
                     im, f = np.asarray(exif_transpose(im)), getattr(im, 'filename', f) or f
@@ -1192,7 +1197,8 @@ class Detections:
         return self.n
 
     def __str__(self):  # override print(results)
-        return self._run(pprint=True)  # print results
+        return str(self._run(pprint=True) or '')  # print results
+
 
     def __repr__(self):
         return f'YOLO {self.__class__} instance\n' + self.__str__()

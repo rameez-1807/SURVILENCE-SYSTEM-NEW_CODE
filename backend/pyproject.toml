@@ -9,6 +9,34 @@ extraPaths = [
     ".",
     "yolov9"
 ]
+include = [
+    "app",
+    "scripts",
+    "tests"
+]
 exclude = [
+    "yolov9",
+    "**/yolov9/**",
+    "**/__pycache__"
+]
+ignore = [
+    "yolov9",
+    "**/yolov9/**"
+]
+
+[tool.pyrefly]
+project-includes = [
+    "app/**/*.py",
+    "scripts/**/*.py",
+    "tests/**/*.py"
+]
+project-excludes = [
+    "yolov9/**",
+    "**/yolov9/**"
+]
+search-path = [
+    ".",
     "yolov9"
 ]
+replace-untyped-imports-with-any = true
+
