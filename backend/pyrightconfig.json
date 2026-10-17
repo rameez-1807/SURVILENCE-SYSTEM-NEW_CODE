@@ -4,5 +4,20 @@
     "c:/Users/RAMEEZ/venv/Lib/site-packages",
     ".",
     "yolov9"
+  ],
+  "include": [
+    "app",
+    "scripts",
+    "tests"
+  ],
+  "exclude": [
+    "yolov9",
+    "**/yolov9/**",
+    "**/__pycache__"
+  ],
+  "ignore": [
+    "yolov9",
+    "**/yolov9/**"
   ]
 }
+

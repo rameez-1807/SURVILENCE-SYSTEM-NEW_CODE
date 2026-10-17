@@ -68,8 +68,10 @@ def notebook_init(verbose=True):
         gb = 1 << 30  # bytes to GiB (1024 ** 3)
         ram = psutil.virtual_memory().total
         total, used, free = shutil.disk_usage("/")
-        display.clear_output()
+        if display is not None:
+            display.clear_output()
         s = f'({os.cpu_count()} CPUs, {ram / gb:.1f} GB RAM, {(total - free) / gb:.1f}/{total / gb:.1f} GB disk)'
+
     else:
         s = ''
 

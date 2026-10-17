@@ -12,4 +12,8 @@ elif [ -f "backend/requirements.txt" ]; then
     pip install --extra-index-url https://download.pytorch.org/whl/cpu -r backend/requirements.txt
 fi
 
+echo "==> Pre-caching EasyOCR weights for instant ANPR plate scanning..."
+python -c "import easyocr; easyocr.Reader(['en'], gpu=False, verbose=False)" || true
+
 echo "==> Build finished successfully!"
+

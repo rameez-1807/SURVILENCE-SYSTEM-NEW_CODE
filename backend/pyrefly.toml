@@ -1,0 +1,19 @@
+# Pyrefly Configuration for Backend
+# Excludes the vendored YOLOv9 research repository from type checking
+project-includes = [
+    "app/**/*.py",
+    "scripts/**/*.py",
+    "tests/**/*.py"
+]
+
+project-excludes = [
+    "yolov9/**",
+    "**/yolov9/**"
+]
+
+search-path = [
+    ".",
+    "yolov9"
+]
+
+replace-untyped-imports-with-any = true

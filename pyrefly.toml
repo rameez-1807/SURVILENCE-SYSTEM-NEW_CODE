@@ -1,0 +1,18 @@
+# Pyrefly Configuration for Root Workspace
+project-includes = [
+    "backend/app/**/*.py",
+    "backend/scripts/**/*.py",
+    "backend/tests/**/*.py"
+]
+
+project-excludes = [
+    "backend/yolov9/**",
+    "**/yolov9/**"
+]
+
+search-path = [
+    "backend",
+    "backend/yolov9"
+]
+
+replace-untyped-imports-with-any = true

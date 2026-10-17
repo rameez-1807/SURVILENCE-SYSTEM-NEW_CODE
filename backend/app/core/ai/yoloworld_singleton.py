@@ -65,17 +65,20 @@ def _resolve_model_path() -> str:
     except Exception:
         pass
 
-    # Look for models/yolov8s-worldv2.pt or root yolov8s-worldv2.pt
-    root_dir = Path(__file__).resolve().parents[4]
-    candidate1 = root_dir / "models" / "yolov8s-worldv2.pt"
-    if candidate1.is_file():
-        return str(candidate1)
-
-    candidate2 = root_dir / "yolov8s-worldv2.pt"
-    if candidate2.is_file():
-        return str(candidate2)
+    # Look for yolov8s-worldv2.pt in backend dir or parent dirs
+    backend_dir = Path(__file__).resolve().parents[3]
+    for candidate in [
+        backend_dir / "yolov8s-worldv2.pt",
+        backend_dir / "models" / "yolov8s-worldv2.pt",
+        backend_dir / "app" / "models" / "yolov8s-worldv2.pt",
+        backend_dir.parent / "models" / "yolov8s-worldv2.pt",
+        backend_dir.parent / "yolov8s-worldv2.pt",
+    ]:
+        if candidate.is_file():
+            return str(candidate)
 
     return "yolov8s-worldv2.pt"
+
 
 
 def _resolve_device() -> str:

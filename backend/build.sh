@@ -8,4 +8,7 @@ python -m pip install --upgrade pip
 echo "==> Installing Python dependencies (CPU PyTorch optimized for cloud limits)..."
 pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
 
-echo "==> Build finished successfully!"
+echo "==> Pre-caching EasyOCR weights for instant ANPR plate scanning..."
+python -c "import easyocr; easyocr.Reader(['en'], gpu=False, verbose=False)" || true
+
+echo "==> Backend build finished successfully!"

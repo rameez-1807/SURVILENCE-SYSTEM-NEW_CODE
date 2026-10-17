@@ -44,14 +44,17 @@ for candidate in _REPO_ROOT_CANDIDATES:
 if _INDIAN_ANPR_DIR and str(_INDIAN_ANPR_DIR) not in sys.path:
     sys.path.insert(0, str(_INDIAN_ANPR_DIR))
 
-# Import references/indian-anpr modules
+# Import bundled or external indian-anpr modules
 try:
-    import plate_utils  # type: ignore
-    import ocr_engine   # type: ignore
+    from app.services.anpr.indian_plate import plate_utils, ocr_engine  # type: ignore
 except ImportError:
-    # Fallback to local import if needed
-    plate_utils = None
-    ocr_engine = None
+    try:
+        import plate_utils  # type: ignore
+        import ocr_engine   # type: ignore
+    except ImportError:
+        plate_utils = None
+        ocr_engine = None
+
 
 
 class IndianANPREngine(BaseANPREngine):
@@ -81,22 +84,20 @@ class IndianANPREngine(BaseANPREngine):
         """Loads and caches the Indian plate detection model."""
         if cls._detector_model is None:
             from ultralytics import YOLO
+            backend_dir = Path(__file__).resolve().parents[3]
             model_path = None
-            if _INDIAN_ANPR_DIR:
-                cand = _INDIAN_ANPR_DIR / "best.pt"
-                if cand.exists():
+            for cand in [
+                backend_dir / "best.pt",
+                backend_dir / "models" / "best.pt",
+                _INDIAN_ANPR_DIR / "best.pt" if _INDIAN_ANPR_DIR else None,
+            ]:
+                if cand and cand.is_file():
                     model_path = str(cand)
+                    break
 
             if not model_path:
-                for candidate in _REPO_ROOT_CANDIDATES:
-                    cand = candidate / "references" / "indian-anpr" / "best.pt"
-                    if cand.exists():
-                        model_path = str(cand)
-                        break
+                model_path = str(backend_dir / "best.pt")
 
-            if not model_path:
-                # Fallback to backend best.pt if needed
-                model_path = str(Path(__file__).resolve().parents[3] / "best.pt")
 
             logger.info(f"[IndianANPR] Loading plate detector from: {model_path}")
             cls._detector_model = YOLO(model_path)
