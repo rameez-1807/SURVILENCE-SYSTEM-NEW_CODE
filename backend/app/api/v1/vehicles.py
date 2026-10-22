@@ -2,6 +2,7 @@ import re
 import uuid
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from app.core.inference_guard import server_ai_inference_enabled, AI_INFERENCE_DISABLED_MESSAGE
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -52,6 +53,8 @@ async def run_engines_benchmark():
     """
     Forces live re-execution of the benchmark across all three engines on the labelled dataset.
     """
+    if not server_ai_inference_enabled():
+        raise HTTPException(status_code=503, detail=AI_INFERENCE_DISABLED_MESSAGE)
     try:
         report = run_anpr_benchmark(use_cache=False)
         return report
@@ -108,6 +111,8 @@ async def scan_vehicle_plate(
     save the record permanently to the database without duplicates,
     and return the scanned detection result.
     """
+    if payload.image_base64 and not server_ai_inference_enabled():
+        raise HTTPException(status_code=503, detail=AI_INFERENCE_DISABLED_MESSAGE)
     try:
         success, record, message, details = await VehicleService.scan_and_save(
             db=db,

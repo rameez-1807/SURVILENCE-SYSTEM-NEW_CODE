@@ -19,6 +19,7 @@ from typing import List, Optional
 import cv2
 import numpy as np
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from app.core.inference_guard import server_ai_inference_enabled, AI_INFERENCE_DISABLED_MESSAGE
 
 from app.core.ai.yoloe_singleton import (
     track_frame as yoloe_track_frame,
@@ -273,6 +274,10 @@ async def object_detection_ws(websocket: WebSocket):
         }
     """
     await websocket.accept()
+    if not server_ai_inference_enabled():
+        await websocket.send_json({"error": AI_INFERENCE_DISABLED_MESSAGE})
+        await websocket.close(code=1008, reason="AI inference unavailable on this host")
+        return
     session_id = f"ws_{id(websocket)}"
     logger.info(f"[OBJECT-DETECTION] Client connected (session={session_id})")
 
