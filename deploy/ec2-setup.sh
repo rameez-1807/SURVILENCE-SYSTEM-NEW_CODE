@@ -33,14 +33,9 @@ sudo yum install -y -q python3.11 python3.11-pip python3.11-devel 2>/dev/null ||
     sudo yum install -y -q python3 python3-pip python3-devel
 }
 
-# Set python3 to 3.11
-if command -v python3.11 &>/dev/null; then
-    sudo alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 2>/dev/null || true
-    sudo alternatives --set python3 /usr/bin/python3.11 2>/dev/null || true
-fi
-
-PYTHON_VER=$(python3 --version 2>&1)
-info "Python installed: $PYTHON_VER"
+# Note: In Amazon Linux 2023, do NOT change /usr/bin/python3 because yum/dnf requires Python 3.9.
+# We will use python3.11 directly for our virtual environment.
+info "Python 3.11 installed: $(python3.11 --version)"
 
 # ── 3. Node.js 20 ──
 info "Step 3/6: Installing Node.js 20..."

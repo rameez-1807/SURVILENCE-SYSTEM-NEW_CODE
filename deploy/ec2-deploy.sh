@@ -54,8 +54,8 @@ cd "$BACKEND_DIR"
 
 # Virtual environment
 if [ ! -d "venv" ]; then
-    info "Creating Python virtual environment..."
-    python3 -m venv venv
+    info "Creating Python 3.11 virtual environment..."
+    python3.11 -m venv venv 2>/dev/null || python3 -m venv venv
 fi
 
 source venv/bin/activate
