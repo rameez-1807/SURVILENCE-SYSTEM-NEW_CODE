@@ -175,6 +175,31 @@ async def create_object_detection_event(
     await db.commit()
     await db.refresh(db_obj)
 
+    # Mirror manually submitted scanner detections to MongoDB Atlas as well.
+    # Keep the existing PostgreSQL return behavior if Atlas is unavailable.
+    try:
+        from app.db.mongodb import get_async_db
+        await get_async_db().events.update_one(
+            {"_id": str(db_obj.id)},
+            {"$setOnInsert": {
+                "_id": str(db_obj.id),
+                "camera_id": str(camera.id),
+                "camera_name": req.camera_name or "Live Camera",
+                "event_type": event_type,
+                "object_name": req.object_class,
+                "confidence": req.confidence,
+                "observed_at": db_obj.observed_at,
+                "model_id": db_obj.model_id,
+                "model_version": db_obj.model_version,
+                "state": "OPEN",
+                "severity": db_obj.severity,
+            }},
+            upsert=True,
+        )
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("MongoDB event mirror failed: %s", exc)
+
     return EventResponse.model_validate(db_obj)
 
 

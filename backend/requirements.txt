@@ -35,6 +35,7 @@ numpy>=1.26.0,<2.0.0
 torch>=2.2.0
 torchvision>=0.17.0
 ultralytics>=8.2.0
-supervision>=0.22.0
+# Keep the ByteTrack API used by the YOLOE, YOLOv9, YOLO-World and RTSP trackers.
+supervision==0.25.1
 easyocr>=1.7.0
 Pillow>=10.0.0

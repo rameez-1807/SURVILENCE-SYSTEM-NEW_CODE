@@ -117,7 +117,7 @@ class RecognitionHistoryRepository:
         from app.models.attendance import AttendanceRecord
 
         today_d = datetime.now(tz.utc).date()
-        today_str = str(today_d)
+        today_str = today_d
 
         # 1. Total Registered Employees
         total_emp_stmt = select(func.count()).select_from(Employee)
@@ -149,16 +149,16 @@ class RecognitionHistoryRepository:
         window_stmt = select(RecognitionHistory)
 
         if period == "7days":
-            min_d_str = str(today_d - timedelta(days=7))
+            min_d_str = today_d - timedelta(days=7)
             window_stmt = window_stmt.where(func.date(RecognitionHistory.timestamp) >= min_d_str)
         elif period == "30days":
-            min_d_str = str(today_d - timedelta(days=30))
+            min_d_str = today_d - timedelta(days=30)
             window_stmt = window_stmt.where(func.date(RecognitionHistory.timestamp) >= min_d_str)
         elif period == "custom" and start_date and end_date:
             window_stmt = window_stmt.where(
                 sa.and_(
-                    func.date(RecognitionHistory.timestamp) >= start_date,
-                    func.date(RecognitionHistory.timestamp) <= end_date
+                    func.date(RecognitionHistory.timestamp) >= datetime.strptime(start_date, "%Y-%m-%d").date(),
+                    func.date(RecognitionHistory.timestamp) <= datetime.strptime(end_date, "%Y-%m-%d").date()
                 )
             )
         else:

@@ -78,9 +78,9 @@ export default function Objects() {
   const [selectedEvent, setSelectedEvent] = useState<ObjectDetectionEvent | null>(null);
 
   // ── Live Detection Model & Sensitivity State ──
-  const [selectedModel, setSelectedModel] = useState<'yoloe' | 'yolov9' | 'yoloworld' | 'yolo11m'>('yoloe');
+  const [selectedModel, setSelectedModel] = useState<'browser' | 'yoloe' | 'yolov9' | 'yoloworld' | 'yolo11m'>('browser');
   const [liveConfidence, setLiveConfidence] = useState<number>(0.35);
-  const selectedModelRef = useRef<'yoloe' | 'yolov9' | 'yoloworld' | 'yolo11m'>('yoloe');
+  const selectedModelRef = useRef<'browser' | 'yoloe' | 'yolov9' | 'yoloworld' | 'yolo11m'>('browser');
   const liveConfidenceRef = useRef<number>(0.35);
 
   // Open-Vocabulary Target Classes for YOLO-World
@@ -145,6 +145,9 @@ export default function Objects() {
   const liveVideoRef = useRef<HTMLVideoElement | null>(null);
   const liveCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const liveOverlayRef = useRef<HTMLCanvasElement | null>(null);
+  const browserRunRef = useRef(0);
+  const browserModelRef = useRef<import('@tensorflow-models/coco-ssd').ObjectDetection | null>(null);
+  const liveConnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveWsRef = useRef<WebSocket | null>(null);
   const liveSendIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const liveFpsCounterRef = useRef({ frames: 0, lastTime: Date.now() });
@@ -329,19 +332,100 @@ export default function Objects() {
     const captureCanvas = liveCanvasRef.current;
     if (!captureCanvas) return;
 
+    // Run common-object detection on the user's device, outside Render's RAM limit.
+    if (selectedModelRef.current === 'browser') {
+      const run = ++browserRunRef.current;
+      const savedAt = new Map<string, number>();
+      try {
+        if (!browserModelRef.current) {
+          const tf = await import('@tensorflow/tfjs');
+          await tf.ready();
+          const coco = await import('@tensorflow-models/coco-ssd');
+          browserModelRef.current = await coco.load({ base: 'lite_mobilenet_v2' });
+        }
+        if (run !== browserRunRef.current) return;
+        setLiveWsStatus('connected');
+        while (run === browserRunRef.current) {
+          const started = performance.now();
+          const predictions = await browserModelRef.current.detect(video, 20, liveConfidenceRef.current);
+          if (run !== browserRunRef.current) break;
+          const dets = predictions.map((prediction) => ({
+            class_id: 0, name: prediction.class, confidence: prediction.score,
+            x1: prediction.bbox[0], y1: prediction.bbox[1],
+            x2: prediction.bbox[0] + prediction.bbox[2],
+            y2: prediction.bbox[1] + prediction.bbox[3],
+          }));
+          const counts: Record<string, number> = {};
+          dets.forEach(d => { counts[d.name] = (counts[d.name] || 0) + 1; });
+          const elapsed = performance.now() - started;
+          setLiveDetections(dets); setLiveCounts(counts); setLiveActiveTracks(0);
+          setLiveInferenceMs(Math.round(elapsed));
+          setLiveFps(Math.round(1000 / Math.max(1, elapsed + 100)));
+          setLiveFrameSize({ w: video.videoWidth, h: video.videoHeight });
+          drawLiveOverlay(dets, video.videoWidth, video.videoHeight);
+          if (autoSave) {
+            for (const name of Object.keys(counts)) {
+              if (Date.now() - (savedAt.get(name) || 0) < 30000) continue;
+              savedAt.set(name, Date.now());
+              const detection = dets.find(d => d.name === name)!;
+              void api.post('/events/detect-object', {
+                object_class: name, confidence: detection.confidence,
+                camera_name: 'Browser COCO-SSD', is_llm_verified: false,
+                needs_review: detection.confidence < LOW_CONFIDENCE_THRESHOLD,
+                evidence_reference: `Browser COCO-SSD: ${name}`,
+              }).then(() => {
+                if (run === browserRunRef.current) {
+                  setSaveStatus(`Saved ${name} to database`);
+                  void fetchDetections();
+                }
+              }).catch(() => {
+                if (run === browserRunRef.current) setSaveStatus('Detection is running; database save failed.');
+              });
+            }
+          }
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      } catch (err) {
+        if (run === browserRunRef.current) {
+          setLiveWsStatus('error');
+          setLiveError(`Browser detector could not start: ${err instanceof Error ? err.message : String(err)}. Stop and retry.`);
+        }
+      }
+      return;
+    }
+
     // 4. Connect WebSocket
     const wsUrl = getWsUrl('/api/v1/ws/object-detection');
     console.log('[LiveCamera] Connecting to WebSocket:', wsUrl);
     const ws = new WebSocket(wsUrl);
     liveWsRef.current = ws;
 
+    // Register failure handlers before the handshake, including failed connections.
+    liveConnectTimeoutRef.current = setTimeout(() => {
+      if (ws.readyState === WebSocket.CONNECTING) {
+        setLiveError('Server connection timed out. Stop camera and select Browser Detection.');
+        ws.close();
+      }
+    }, 45000);
+    ws.onerror = () => {
+      setLiveWsStatus('error');
+      setLiveError('Detection server unavailable. Stop camera and select Browser Detection.');
+    };
+    ws.onclose = () => {
+      if (liveConnectTimeoutRef.current) clearTimeout(liveConnectTimeoutRef.current);
+      if (liveSendIntervalRef.current) clearInterval(liveSendIntervalRef.current);
+      if (liveWsRef.current !== ws) return;
+      setLiveWsStatus('error');
+      setLiveError('Detection server disconnected. Stop camera and use Browser Detection, or run YOLO on a server with more RAM.');
+    };
     ws.onopen = () => {
+      if (liveConnectTimeoutRef.current) clearTimeout(liveConnectTimeoutRef.current);
       setLiveWsStatus('connected');
       console.log('[LiveCamera] WebSocket connected to', wsUrl);
 
       // 5. Adaptive zero-lag frame streaming pipeline
       let isSending = false;
-      let lastSendTime = 0;
+
 
       liveFpsCounterRef.current = { frames: 0, lastTime: Date.now() };
 
@@ -382,7 +466,7 @@ export default function Objects() {
               classes: selectedModelRef.current === 'yoloworld' ? targetClassesRef.current : undefined,
               auto_save: autoSave
             }));
-            lastSendTime = Date.now();
+
           } else {
             isSending = false;
           }
@@ -395,9 +479,9 @@ export default function Objects() {
       // Send initial frame immediately
       sendNextFrame();
 
-      // Watchdog interval: if socket was idle for > 1200ms, trigger next frame
+      // Keep only one frame in flight; slow inference must not build a frame queue.
       liveSendIntervalRef.current = setInterval(() => {
-        if (!isSending || (Date.now() - lastSendTime > 1200)) {
+        if (!isSending) {
           isSending = false;
           sendNextFrame();
         }
@@ -409,8 +493,8 @@ export default function Objects() {
         try {
           const data = JSON.parse(event.data);
           if (data.error) {
-            console.warn('[LiveCamera] Server error:', data.error);
-            sendNextFrame();
+            setLiveError(String(data.error));
+            ws.close();
             return;
           }
           const dets = data.detections || [];
@@ -455,20 +539,12 @@ export default function Objects() {
         sendNextFrame();
       };
 
-      ws.onerror = () => {
-        isSending = false;
-        setLiveWsStatus('error');
-        setLiveError('WebSocket connection failed. Is the backend running?');
-      };
-
-      ws.onclose = () => {
-        isSending = false;
-        setLiveWsStatus('disconnected');
-      };
     };
-  }, [drawLiveOverlay]);
+  }, [drawLiveOverlay, autoSave]);
 
   const stopLiveCamera = useCallback(() => {
+    browserRunRef.current++;
+    if (liveConnectTimeoutRef.current) clearTimeout(liveConnectTimeoutRef.current);
     // Stop sending frames
     if (liveSendIntervalRef.current) {
       clearInterval(liveSendIntervalRef.current);
@@ -477,8 +553,9 @@ export default function Objects() {
 
     // Close WebSocket
     if (liveWsRef.current) {
-      liveWsRef.current.close();
+      const ws = liveWsRef.current;
       liveWsRef.current = null;
+      ws.close();
     }
 
     // Stop camera stream
@@ -1238,7 +1315,12 @@ export default function Objects() {
                 {/* Model Selector Pill (Live Mode Only) */}
                 {scanMode === 'live' && (
                   <div className="flex bg-background border border-border rounded-xl p-0.5 text-xs flex-wrap gap-0.5">
+                    <button disabled={isLiveCameraActive} onClick={() => setSelectedModel('browser')}
+                      className={cn("px-3 py-1 rounded-lg text-[11px] font-bold", selectedModel === 'browser' ? "bg-emerald-500 text-white" : "text-text-muted")}>
+                      Browser Detection (Free)
+                    </button>
                     <button
+                      disabled={isLiveCameraActive}
                       onClick={() => setSelectedModel('yoloe')}
                       title="Genuine Ultralytics YOLOE Prompt-Free neural network with ByteTrack. Automatically identifies everyday objects without manual class input."
                       className={cn(
@@ -1252,6 +1334,7 @@ export default function Objects() {
                       YOLOE Auto Detect (Prompt-Free)
                     </button>
                     <button
+                      disabled={isLiveCameraActive}
                       onClick={() => setSelectedModel('yolov9')}
                       title="Official YOLOv9-C detector with ByteTrack multi-object tracking (COCO 80 classes)"
                       className={cn(
@@ -1265,6 +1348,7 @@ export default function Objects() {
                       YOLOv9-C (Official + ByteTrack)
                     </button>
                     <button
+                      disabled={isLiveCameraActive}
                       onClick={() => setSelectedModel('yoloworld')}
                       title="YOLO-World Open-Vocabulary detector with custom class vocabulary and ByteTrack tracking"
                       className={cn(
@@ -1278,6 +1362,7 @@ export default function Objects() {
                       YOLO-World (Open-Vocab)
                     </button>
                     <button
+                      disabled={isLiveCameraActive}
                       onClick={() => setSelectedModel('yolo11m')}
                       title="COCO standard 80 classes fixed detector"
                       className={cn(
@@ -1340,7 +1425,7 @@ export default function Objects() {
                 {scanMode === 'live' && liveWsStatus === 'connecting' && (
                   <span className="flex items-center gap-1.5 px-2.5 py-0.5 bg-yellow-500/20 text-yellow-400 text-xs font-bold rounded-full">
                     <div className="w-3 h-3 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
-                    CONNECTING...
+                    {selectedModel === 'browser' ? 'LOADING MODEL...' : 'CONNECTING...'}
                   </span>
                 )}
               </div>
@@ -1495,13 +1580,13 @@ export default function Objects() {
                         <Eye className="w-8 h-8" />
                       </div>
                       <h4 className="text-sm font-bold text-white">
-                        {selectedModel === 'yoloe' ? 'YOLOE Prompt-Free (Auto Detect) & ByteTrack Live Detection' :
+                        {selectedModel === 'browser' ? 'Browser COCO-SSD Live Detection' : selectedModel === 'yoloe' ? 'YOLOE Prompt-Free (Auto Detect) & ByteTrack Live Detection' :
                          selectedModel === 'yolov9' ? 'YOLOv9-C Official & ByteTrack Live Detection' :
                          selectedModel === 'yoloworld' ? 'YOLO-World Open-Vocabulary Live Detection' :
                          'YOLO11m Live Real-Time Detection'}
                       </h4>
                       <p className="text-xs text-text-muted max-w-sm mx-auto">
-                        {selectedModel === 'yoloe' 
+                        {selectedModel === 'browser' ? 'Detects 80 common object classes on your device: person, laptop, phone, bottle, chair and more. First use downloads the model. Does not provide persistent tracking IDs. Stop the camera before switching models.' : selectedModel === 'yoloe'
                           ? 'Zero-prompt everyday multi-object detection powered by genuine YOLOE neural network and ByteTrack. Automatically identifies laptop, phone, bottle, cup, chair, person, pen, watch, backpack, etc. with accurate bounding boxes, confidence, and persistent track IDs.'
                           : selectedModel === 'yoloworld'
                           ? 'Real-time open-vocabulary inference with stable ByteTrack multi-object tracking. Detect any custom object with bounding boxes, confidence, and persistent track IDs.'
@@ -1544,8 +1629,8 @@ export default function Objects() {
                         liveWsStatus === 'error' ? "bg-red-400" :
                         "bg-gray-500"
                       )} />
-                      {liveWsStatus === 'connected' ? 'Connected (ByteTrack Active)' :
-                       liveWsStatus === 'connecting' ? 'Connecting…' :
+                      {liveWsStatus === 'connected' ? (selectedModel === 'browser' ? 'Browser Detection Active' : 'Connected') :
+                       liveWsStatus === 'connecting' ? (selectedModel === 'browser' ? 'Loading model…' : 'Connecting…') :
                        liveWsStatus === 'error' ? 'Error' : 'Disconnected'}
                     </span>
 

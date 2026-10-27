@@ -121,6 +121,41 @@ async def _persist_confirmed_track(item: dict, camera_name: str = "Webcam Live",
     Persist confirmed object event to Supabase/PostgreSQL asynchronously.
     Deduplicated by track_id and debounced cooldown.
     """
+    # MongoDB must be written independently of PostgreSQL. In particular,
+    # failing to create an SQL tenant/site must not lose the detection event.
+    try:
+        from datetime import datetime, timezone
+        import uuid
+        from app.db.mongodb import get_async_db
+
+        raw_name = str(item.get("class_name", "object")).strip()
+        obj_name = raw_name.lower().replace(" ", "_")
+        tid = item.get("track_id")
+        conf = float(item.get("confidence", 0.0))
+        m_id = str(item.get("model", model_name))
+        time_bucket = int(time.time() // 30)
+        dedupe_key = f"{camera_name}_{tid}_{obj_name}_{time_bucket}"
+        document = {
+            "_id": str(uuid.uuid5(uuid.NAMESPACE_URL, dedupe_key)),
+            "camera_name": camera_name,
+            "event_type": f"{obj_name}_detected",
+            "object_name": raw_name,
+            "confidence": conf,
+            "track_id": tid,
+            "dedupe_key": dedupe_key,
+            "observed_at": datetime.now(timezone.utc),
+            "model_id": m_id,
+            "model_version": "c" if "yolov9" in m_id.lower() else ("11m" if "11" in m_id else "v2"),
+            "state": "OPEN",
+            "severity": "medium" if conf >= 0.70 else "low",
+        }
+        await get_async_db().events.update_one(
+            {"_id": document["_id"]}, {"$setOnInsert": document}, upsert=True
+        )
+        logger.info("[OBJECT-DETECTION] Confirmed track #%s saved to MongoDB", tid)
+    except Exception as exc:
+        logger.warning("[OBJECT-DETECTION] MongoDB save failed: %s", exc)
+
     try:
         from app.db.session import async_session_factory
         from app.models.tenant import Tenant
@@ -208,35 +243,6 @@ async def _persist_confirmed_track(item: dict, camera_name: str = "Webcam Live",
             await db.commit()
             logger.info(f"[OBJECT-DETECTION] Confirmed track #{tid} ({raw_name}) persisted to events via {m_id}.")
 
-            # Also sync directly to MongoDB Atlas Cloud
-            try:
-                from app.db.mongodb import get_async_db
-                mongo_db = get_async_db()
-                mongo_doc = {
-                    "_id": str(event.id),
-                    "camera_id": str(cam.id),
-                    "camera_name": camera_name,
-                    "event_type": f"{obj_name}_detected",
-                    "object_name": raw_name,
-                    "confidence": conf,
-                    "track_id": tid,
-                    "dedupe_key": dedupe_key,
-                    "observed_at": datetime.now(timezone.utc),
-                    "model_id": m_id,
-                    "model_version": m_ver,
-                    "evidence_reference": f"ByteTrack #{tid}: {raw_name.title()} ({int(conf * 100)}%)",
-                    "state": "OPEN",
-                    "severity": "medium" if conf >= 0.70 else "low",
-                }
-                await mongo_db.events.update_one(
-                    {"dedupe_key": dedupe_key},
-                    {"$setOnInsert": mongo_doc},
-                    upsert=True
-                )
-                logger.info(f"[OBJECT-DETECTION] Confirmed track #{tid} synced to MongoDB Atlas 'events'")
-            except Exception as me:
-                logger.debug(f"[OBJECT-DETECTION] MongoDB sync note: {me}")
-                logger.debug(f"[OBJECT-DETECTION] MongoDB sync error: {me}")
 
     except Exception as e:
         logger.debug(f"[OBJECT-DETECTION] Background persistence skipped: {e}")
