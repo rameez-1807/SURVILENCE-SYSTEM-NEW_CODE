@@ -117,8 +117,8 @@ npm install --silent 2>/dev/null || npm install
 # Write production .env with auto-detected IP
 info "Configuring frontend for EC2 IP: $EC2_PUBLIC_IP"
 cat > .env.production <<FENVEOF
-VITE_API_URL=http://${EC2_PUBLIC_IP}
-VITE_WS_URL=ws://${EC2_PUBLIC_IP}
+VITE_API_URL=
+VITE_WS_URL=
 FENVEOF
 
 # Build frontend
