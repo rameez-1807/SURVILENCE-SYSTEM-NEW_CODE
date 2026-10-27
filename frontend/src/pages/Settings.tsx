@@ -4,7 +4,6 @@ import {
     Camera,
     Cpu,
     Volume2,
-    Bell,
     Server,
     Save,
     RotateCcw,
@@ -13,7 +12,6 @@ import {
     Wifi,
     Shield,
     Activity,
-    Sliders,
     Play
 } from 'lucide-react';
 import { api } from '../lib/api';
