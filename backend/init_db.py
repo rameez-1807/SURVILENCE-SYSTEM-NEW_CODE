@@ -67,3 +67,4 @@ async def init_db_and_seed():
 
 if __name__ == "__main__":
     asyncio.run(init_db_and_seed())
+

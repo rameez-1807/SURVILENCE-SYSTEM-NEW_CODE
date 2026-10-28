@@ -25,3 +25,4 @@ with open(p, 'w') as f:
 
 sudo systemctl restart surveillance-backend
 echo "SUCCESS: MongoDB configured and surveillance-backend restarted!"
+

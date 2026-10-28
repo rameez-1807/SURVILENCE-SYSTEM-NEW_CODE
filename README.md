@@ -14,7 +14,7 @@
   </p>
 
   <p>
-    <a href="https://github.com/NighwanTech/AI_SURVILENCE-SYSTEM.git"><img src="https://img.shields.io/badge/GitHub-Repository-181717?style=for-the-badge&logo=github&logoColor=white" alt="GitHub Repo" /></a>
+    <a href="https://github.com/rameez-1807/SURVILENCE-SYSTEM-NEW_CODE.git"><img src="https://img.shields.io/badge/GitHub-Repository-181717?style=for-the-badge&logo=github&logoColor=white" alt="GitHub Repo" /></a>
     <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.115+-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI" /></a>
     <a href="https://react.dev/"><img src="https://img.shields.io/badge/React_19-20232A?style=for-the-badge&logo=react&logoColor=61DAFB" alt="React 19" /></a>
     <a href="https://vitejs.dev/"><img src="https://img.shields.io/badge/Vite_8-646CFF?style=for-the-badge&logo=vite&logoColor=white" alt="Vite 8" /></a>
@@ -390,6 +390,74 @@ Open Google Chrome, Microsoft Edge, or Firefox and go to:
   In Chrome/Edge URL bar, click the camera icon next to `http://localhost:5173` and set Camera permissions to **"Allow"**.
 
 ## 🚀 Deployment Guide
+
+### ☁️ Production Deployment on AWS EC2 (Recommended)
+
+The project includes production-ready automated bash scripts inside the `deploy/` directory to configure an **Amazon Linux 2023** instance with Python 3.11, Node.js 20, 4 GB Swap space, Nginx Reverse Proxy, HTTPS / SSL, SystemD background daemon, and MongoDB Atlas cloud synchronization.
+
+#### 1. EC2 Instance Launch Recommendations
+* **AMI**: Amazon Linux 2023 AMI (64-bit x86)
+* **Instance Type**: `m7i-flex.large` (2 vCPU, 8 GiB RAM) or `t3.medium` (2 vCPU, 4 GiB RAM)
+* **Storage**: At least **30 GiB** (gp3)
+* **Security Group Inbound Rules**:
+  * SSH: Port `22` (Source: Anywhere / My IP)
+  * HTTP: Port `80` (Source: `0.0.0.0/0`)
+  * HTTPS: Port `443` (Source: `0.0.0.0/0`)
+
+#### 2. Quick 1-Click Deployment Commands
+Connect to your EC2 instance via **EC2 Instance Connect** or SSH and execute:
+
+```bash
+# 1. Install Git and clone repository
+sudo yum install -y git
+git clone https://github.com/rameez-1807/SURVILENCE-SYSTEM-NEW_CODE.git
+cd SURVILENCE-SYSTEM-NEW_CODE
+
+# 2. Automated System Setup (Python 3.11, Node 20, Nginx, 4GB Swap, OpenCV GL)
+bash deploy/ec2-setup.sh
+
+# 3. Deploy Application (Builds React frontend, installs Python CPU PyTorch, configures Nginx & SystemD)
+bash deploy/ec2-deploy.sh
+
+# 4. Initialize Database Tables and Admin User
+bash deploy/fix-db.sh
+
+# 5. Connect MongoDB Atlas Cloud Database
+bash deploy/set-mongo.sh
+
+# 6. Enable HTTPS / SSL (Crucial for browser webcam / WebRTC camera permissions)
+bash deploy/enable-https.sh
+```
+
+#### 3. Default Credentials
+* **Web UI URL**: `https://<YOUR_EC2_PUBLIC_IP>` or `http://<YOUR_EC2_PUBLIC_IP>`
+* **Admin Email**: `admin@example.com`
+* **Admin Password**: `admin123`
+* **API Documentation**: `https://<YOUR_EC2_PUBLIC_IP>/docs`
+
+#### 4. Service Maintenance & Management
+```bash
+# View live backend logs
+sudo journalctl -u surveillance-backend -f
+
+# Restart backend service
+sudo systemctl restart surveillance-backend
+
+# Check backend status
+sudo systemctl status surveillance-backend --no-pager
+
+# Pull latest code from GitHub and redeploy in 1 step
+bash deploy/ec2-update.sh
+```
+
+#### 5. Browser Camera (WebRTC) Permissions
+* **With HTTPS**: Simply open `https://<YOUR_EC2_PUBLIC_IP>/objects`, accept the self-signed certificate (Advanced → Proceed), and click **Allow** when prompted for camera access.
+* **With HTTP**: If using `http://`, enable Chrome flag:
+  1. Navigate to `chrome://flags/#unsafely-treat-insecure-origin-as-secure`
+  2. Add `http://<YOUR_EC2_PUBLIC_IP>`
+  3. Select **Enabled** and click **Relaunch**.
+
+---
 
 ### 🟣 Deploy Backend to Render
 

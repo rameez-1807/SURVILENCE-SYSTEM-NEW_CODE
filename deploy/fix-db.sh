@@ -7,3 +7,4 @@ source venv/bin/activate
 python init_db.py
 sudo systemctl restart surveillance-backend
 echo "SUCCESS: Database initialized, admin seeded, and backend restarted!"
+
