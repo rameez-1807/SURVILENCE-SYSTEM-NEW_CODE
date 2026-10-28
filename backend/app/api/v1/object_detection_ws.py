@@ -38,6 +38,12 @@ from app.core.ai.yolo11m_singleton import (
     is_loaded as yolo11m_is_loaded,
     unload_model as yolo11m_unload_model,
 )
+from app.core.ai.yolo26_singleton import (
+    track_frame as yolo26_track_frame,
+    remove_session_tracker as yolo26_remove_session_tracker,
+    is_loaded as yolo26_is_loaded,
+    unload_model as yolo26_unload_model,
+)
 from app.core.ai.yolov9_singleton import (
     track_frame as yolov9_track_frame,
     detect_frame as yolov9_detect,
@@ -60,6 +66,9 @@ def _evict_other_models(target_model: str) -> None:
         return
     _current_active_model = target_model
 
+    if target_model not in ("yolo26", "yolo26s") and yolo26_is_loaded():
+        yolo26_unload_model()
+
     if target_model in ("yoloe", "yoloe-pf", "yoloe_autodetect", "yoloe-autodetect"):
         if yolov9_is_loaded():
             yolov9_unload_model()
@@ -79,6 +88,15 @@ def _evict_other_models(target_model: str) -> None:
             yoloe_unload_model()
         if yolov9_is_loaded():
             yolov9_unload_model()
+        if yolo11m_is_loaded():
+            yolo11m_unload_model()
+    elif target_model in ("yolo26", "yolo26s"):
+        if yoloe_is_loaded():
+            yoloe_unload_model()
+        if yolov9_is_loaded():
+            yolov9_unload_model()
+        if yoloworld_is_loaded():
+            yoloworld_unload_model()
         if yolo11m_is_loaded():
             yolo11m_unload_model()
     elif target_model in ("yolo11m", "yolo11", "yolo11m-coco"):
@@ -145,7 +163,7 @@ async def _persist_confirmed_track(item: dict, camera_name: str = "Webcam Live",
             "dedupe_key": dedupe_key,
             "observed_at": datetime.now(timezone.utc),
             "model_id": m_id,
-            "model_version": "c" if "yolov9" in m_id.lower() else ("11m" if "11" in m_id else "v2"),
+            "model_version": "c" if "yolov9" in m_id.lower() else ("26s" if "26" in m_id else ("11m" if "11" in m_id else "v2")),
             "state": "OPEN",
             "severity": "medium" if conf >= 0.70 else "low",
         }
@@ -220,7 +238,7 @@ async def _persist_confirmed_track(item: dict, camera_name: str = "Webcam Live",
                 return
 
             m_id = str(item.get("model", model_name))
-            m_ver = "c" if "yolov9" in m_id.lower() else ("11m" if "11" in m_id else "v2")
+            m_ver = "c" if "yolov9" in m_id.lower() else ("26s" if "26" in m_id else ("11m" if "11" in m_id else "v2"))
 
             event = Event(
                 tenant_id=tenant.id,
@@ -354,6 +372,14 @@ async def object_detection_ws(websocket: WebSocket):
                         imgsz=target_imgsz,
                         classes=req_classes,
                     )
+                elif req_model in ("yolo26", "yolo26s"):
+                    result = await asyncio.to_thread(
+                        yolo26_track_frame,
+                        session_id=session_id,
+                        frame=frame,
+                        confidence=conf,
+                        imgsz=target_imgsz,
+                    )
                 elif req_model in ("yolo11m", "yolo11", "yolo11m-coco"):
                     # YOLO11m detector
                     raw_res = await asyncio.to_thread(
@@ -366,7 +392,7 @@ async def object_detection_ws(websocket: WebSocket):
                     result["new_confirmed"] = []
                 else:
                     logger.warning(f"[OBJECT-DETECTION] Unknown requested model '{req_model}'")
-                    await websocket.send_json({"error": f"Unknown model '{req_model}'. Supported: yoloe, yolov9, yoloworld, yolo11m"})
+                    await websocket.send_json({"error": f"Unknown model '{req_model}'. Supported: yolo26, yoloe, yolov9, yoloworld, yolo11m"})
                     continue
 
             except Exception as e:
@@ -409,5 +435,6 @@ async def object_detection_ws(websocket: WebSocket):
             pass
     finally:
         yoloe_remove_session_tracker(session_id)
+        yolo26_remove_session_tracker(session_id)
         yoloworld_remove_session_tracker(session_id)
         yolov9_remove_session_tracker(session_id)
