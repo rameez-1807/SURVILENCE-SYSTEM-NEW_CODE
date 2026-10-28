@@ -16,7 +16,8 @@ import {
   Eye,
   Trash2,
   Database,
-  Activity
+  Activity,
+  SwitchCamera
 } from 'lucide-react';
 import { api, getWsUrl } from '../lib/api';
 import { cn } from '../utils/cn';
@@ -117,6 +118,9 @@ export default function Objects() {
   const [liveFrameSize, setLiveFrameSize] = useState({ w: 0, h: 0 });
   const [liveError, setLiveError] = useState<string | null>(null);
   const [isLiveCameraActive, setIsLiveCameraActive] = useState(false);
+  const [cameraFacingMode, setCameraFacingMode] = useState<'environment' | 'user'>('environment');
+  const [availableVideoDevices, setAvailableVideoDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedVideoDeviceId, setSelectedVideoDeviceId] = useState<string>('');
 
   // Open-Vocabulary Target Categories Handlers
   const handleAddClass = (className?: string) => {
@@ -283,7 +287,7 @@ export default function Objects() {
     });
   }, []);
 
-  const startLiveCamera = useCallback(async () => {
+  const startLiveCamera = useCallback(async (targetFacingMode?: 'environment' | 'user', targetDeviceId?: string) => {
     setLiveError(null);
     setLiveDetections([]);
     setLiveCounts({});
@@ -296,14 +300,32 @@ export default function Objects() {
       return;
     }
 
-    let stream: MediaStream | null = null;
-    const constraints: MediaStreamConstraints[] = [
-      { video: true },
-      { video: { width: { ideal: 1280 }, height: { ideal: 720 } } },
-      { video: { width: { ideal: 640 }, height: { ideal: 480 } } },
-    ];
+    const facing = targetFacingMode || cameraFacingMode;
+    const devId = targetDeviceId !== undefined ? targetDeviceId : selectedVideoDeviceId;
 
-    for (const c of constraints) {
+    let stream: MediaStream | null = null;
+    const constraintsList: MediaStreamConstraints[] = [];
+
+    if (devId) {
+      constraintsList.push({
+        video: { deviceId: { exact: devId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+      constraintsList.push({ video: { deviceId: { exact: devId } } });
+    }
+
+    // Try target facingMode (Back / Rear camera or Front / Selfie camera)
+    constraintsList.push({
+      video: {
+        facingMode: { ideal: facing },
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      }
+    });
+    constraintsList.push({ video: { facingMode: { ideal: facing } } });
+    constraintsList.push({ video: { width: { ideal: 1280 }, height: { ideal: 720 } } });
+    constraintsList.push({ video: true });
+
+    for (const c of constraintsList) {
       try {
         stream = await navigator.mediaDevices.getUserMedia(c);
         break;
@@ -316,6 +338,14 @@ export default function Objects() {
       setLiveError('Camera permission denied or camera not found. Click 🔒 in address bar → Allow Camera.');
       setLiveWsStatus('error');
       return;
+    }
+
+    // Enumerate available camera devices
+    if (navigator.mediaDevices?.enumerateDevices) {
+      navigator.mediaDevices.enumerateDevices().then(devices => {
+        const vDevices = devices.filter(d => d.kind === 'videoinput');
+        setAvailableVideoDevices(vDevices);
+      }).catch(() => {});
     }
 
     // 2. Attach to video element
@@ -540,7 +570,7 @@ export default function Objects() {
       };
 
     };
-  }, [drawLiveOverlay, autoSave]);
+  }, [drawLiveOverlay, autoSave, cameraFacingMode, selectedVideoDeviceId]);
 
   const stopLiveCamera = useCallback(() => {
     browserRunRef.current++;
@@ -580,6 +610,28 @@ export default function Objects() {
     setLiveInferenceMs(0);
     setLiveError(null);
   }, []);
+
+  const toggleCameraFacing = async () => {
+    const nextFacing = cameraFacingMode === 'environment' ? 'user' : 'environment';
+    setCameraFacingMode(nextFacing);
+    setSelectedVideoDeviceId('');
+    if (isLiveCameraActive) {
+      stopLiveCamera();
+      setTimeout(() => {
+        startLiveCamera(nextFacing, '');
+      }, 300);
+    }
+  };
+
+  const selectCameraDevice = async (deviceId: string) => {
+    setSelectedVideoDeviceId(deviceId);
+    if (isLiveCameraActive) {
+      stopLiveCamera();
+      setTimeout(() => {
+        startLiveCamera(cameraFacingMode, deviceId);
+      }, 300);
+    }
+  };
 
   // Cleanup live camera on unmount or mode switch
   useEffect(() => {
@@ -820,6 +872,9 @@ export default function Objects() {
       // Step 1: Try the simplest possible request first — this also triggers the permission prompt
       // Browsers hide deviceId until the user grants permission, so we must try `video: true` first
       const simpleSets: MediaStreamConstraints[] = [
+        ...(selectedVideoDeviceId ? [{ video: { deviceId: { exact: selectedVideoDeviceId } } }] : []),
+        { video: { facingMode: { ideal: cameraFacingMode }, width: { ideal: 1280 }, height: { ideal: 720 } } },
+        { video: { facingMode: { ideal: cameraFacingMode } } },
         { video: true },
         { video: { width: { ideal: 1280 }, height: { ideal: 720 } } },
         { video: { width: { ideal: 640 }, height: { ideal: 480 } } },
@@ -1593,12 +1648,28 @@ export default function Objects() {
                           : 'Real-time object detection with persistent identity tracking across consecutive video frames.'
                         }
                       </p>
-                      <button
-                        onClick={startLiveCamera}
-                        className="px-6 py-2.5 bg-cyan-500 hover:bg-cyan-600 text-white text-xs font-bold rounded-xl shadow-lg transition-all flex items-center gap-2 mx-auto"
-                      >
-                        <Camera className="w-4 h-4" /> Start Live Camera
-                      </button>
+                      <div className="flex items-center justify-center gap-2 pt-1 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={toggleCameraFacing}
+                          className={cn(
+                            "flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer select-none",
+                            cameraFacingMode === 'environment'
+                              ? "bg-cyan-500/15 border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/25"
+                              : "bg-purple-500/15 border-purple-500/40 text-purple-400 hover:bg-purple-500/25"
+                          )}
+                          title="Switch Front / Back Camera"
+                        >
+                          <SwitchCamera className="w-4 h-4" />
+                          <span>{cameraFacingMode === 'environment' ? 'Back Camera' : 'Front Camera'}</span>
+                        </button>
+                        <button
+                          onClick={() => startLiveCamera()}
+                          className="px-6 py-2.5 bg-cyan-500 hover:bg-cyan-600 text-white text-xs font-bold rounded-xl shadow-lg transition-all flex items-center gap-2"
+                        >
+                          <Camera className="w-4 h-4" /> Start Live Camera
+                        </button>
+                      </div>
                     </div>
                   )}
 
@@ -1647,10 +1718,41 @@ export default function Objects() {
                     )}
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* Front / Back Camera Quick Toggle Button */}
+                    <button
+                      type="button"
+                      onClick={toggleCameraFacing}
+                      className={cn(
+                        "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border cursor-pointer select-none",
+                        cameraFacingMode === 'environment'
+                          ? "bg-cyan-500/15 border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/25"
+                          : "bg-purple-500/15 border-purple-500/40 text-purple-400 hover:bg-purple-500/25"
+                      )}
+                      title={`Currently using ${cameraFacingMode === 'environment' ? 'Back / Environment (Rear)' : 'Front / User (Selfie)'} Camera. Click to flip.`}
+                    >
+                      <SwitchCamera className="w-3.5 h-3.5" />
+                      <span>{cameraFacingMode === 'environment' ? 'Back Cam' : 'Front Cam'}</span>
+                    </button>
+
+                    {availableVideoDevices.length > 1 && (
+                      <select
+                        value={selectedVideoDeviceId}
+                        onChange={(e) => selectCameraDevice(e.target.value)}
+                        className="bg-surface border border-border rounded-lg px-2 py-1.5 text-xs text-text font-semibold focus:outline-none"
+                      >
+                        <option value="">{cameraFacingMode === 'environment' ? '📷 Back (Default)' : '🤳 Front (Default)'}</option>
+                        {availableVideoDevices.map((d, i) => (
+                          <option key={d.deviceId || i} value={d.deviceId}>
+                            {d.label || `Camera ${i + 1}`}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+
                     {!isLiveCameraActive ? (
                       <button
-                        onClick={startLiveCamera}
+                        onClick={() => startLiveCamera()}
                         className="flex items-center gap-1.5 px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-xs font-bold transition-colors shadow"
                       >
                         <Camera className="w-3.5 h-3.5" /> Start Camera

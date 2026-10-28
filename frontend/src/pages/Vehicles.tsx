@@ -28,7 +28,8 @@ import {
   Calendar,
   RotateCcw,
   Cpu,
-  BarChart2
+  BarChart2,
+  SwitchCamera
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { cn } from '../utils/cn';
@@ -144,6 +145,7 @@ export default function Vehicles() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([]);
   const [selectedCameraId, setSelectedCameraId] = useState<string>('');
+  const [cameraFacingMode, setCameraFacingMode] = useState<'environment' | 'user'>('environment');
 
   // Continuous Live Auto-Scan & Plate Highlighting State
   const [autoScanActive, setAutoScanActive] = useState(true);
@@ -283,30 +285,49 @@ export default function Vehicles() {
     }
   };
 
-  // Start Hardware Webcam Stream (Resilient Multi-Fallback)
-  const startCameraStream = async (targetDeviceId?: string) => {
+  // Start Hardware Webcam Stream (Resilient Multi-Fallback with Front/Back support)
+  const startCameraStream = async (targetDeviceId?: string, targetFacingMode?: 'environment' | 'user') => {
     try {
       setCameraError(null);
       stopCameraStream();
 
-      const devId = targetDeviceId || selectedCameraId;
+      const facing = targetFacingMode || cameraFacingMode;
+      const devId = targetDeviceId !== undefined ? targetDeviceId : selectedCameraId;
       let stream: MediaStream | null = null;
 
-      // Attempt 1: Specific device or standard 720p resolution
-      try {
-        const constraints: MediaStreamConstraints = {
-          video: devId
-            ? { deviceId: { exact: devId } }
-            : { width: { ideal: 1280 }, height: { ideal: 720 } }
-        };
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-      } catch (e1) {
-        console.warn("Camera ideal resolution failed, attempting basic video constraint:", e1);
-        // Attempt 2: Basic fallback without strict constraints
+      const constraintsList: MediaStreamConstraints[] = [];
+
+      if (devId) {
+        constraintsList.push({
+          video: { deviceId: { exact: devId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+        });
+        constraintsList.push({
+          video: { deviceId: { exact: devId } }
+        });
+      }
+
+      // Try facingMode (Back / Rear camera or Front / User camera)
+      constraintsList.push({
+        video: {
+          facingMode: { ideal: facing },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
+      });
+      constraintsList.push({
+        video: { facingMode: { ideal: facing } }
+      });
+      constraintsList.push({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+      constraintsList.push({ video: true });
+
+      for (const c of constraintsList) {
         try {
-          stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        } catch (e2) {
-          throw e2;
+          stream = await navigator.mediaDevices.getUserMedia(c);
+          if (stream) break;
+        } catch (e1) {
+          console.warn("Camera constraint attempt failed:", e1);
         }
       }
 
@@ -357,6 +378,16 @@ export default function Vehicles() {
     }
     if (videoRef.current) {
       videoRef.current.srcObject = null;
+    }
+  };
+
+  // Toggle between Front and Back Camera
+  const toggleCameraFacing = async () => {
+    const nextFacing = cameraFacingMode === 'environment' ? 'user' : 'environment';
+    setCameraFacingMode(nextFacing);
+    setSelectedCameraId('');
+    if (isCameraActive && cameraSourceMode === 'webcam') {
+      await startCameraStream('', nextFacing);
     }
   };
 
@@ -1178,15 +1209,34 @@ export default function Vehicles() {
                       <Video className="w-3 h-3" /> Gate CCTV
                     </button>
 
+                    {/* Front / Back Camera Switcher */}
+                    {cameraSourceMode === 'webcam' && (
+                      <button
+                        type="button"
+                        onClick={toggleCameraFacing}
+                        className={cn(
+                          "px-2 py-1 rounded-md text-[11px] font-bold transition-all flex items-center gap-1 border cursor-pointer select-none",
+                          cameraFacingMode === 'environment'
+                            ? "bg-cyan-500/15 border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/25"
+                            : "bg-purple-500/15 border-purple-500/40 text-purple-400 hover:bg-purple-500/25"
+                        )}
+                        title={`Currently using ${cameraFacingMode === 'environment' ? 'Back / Rear Camera' : 'Front / User Camera'}. Click to switch.`}
+                      >
+                        <SwitchCamera className="w-3 h-3" />
+                        <span>{cameraFacingMode === 'environment' ? 'Back Cam' : 'Front Cam'}</span>
+                      </button>
+                    )}
+
                     {availableCameras.length > 1 && cameraSourceMode === 'webcam' && (
                       <select
                         value={selectedCameraId}
                         onChange={(e) => {
                           setSelectedCameraId(e.target.value);
-                          startCameraStream(e.target.value);
+                          startCameraStream(e.target.value, cameraFacingMode);
                         }}
                         className="bg-surface border border-border rounded-md px-1.5 py-1 text-[10px] text-text font-semibold focus:outline-none"
                       >
+                        <option value="">{cameraFacingMode === 'environment' ? '📷 Back (Default)' : '🤳 Front (Default)'}</option>
                         {availableCameras.map((cam, idx) => (
                           <option key={cam.deviceId || idx} value={cam.deviceId}>
                             {cam.label || `Cam ${idx + 1}`}
