@@ -79,9 +79,9 @@ export default function Objects() {
   const [selectedEvent, setSelectedEvent] = useState<ObjectDetectionEvent | null>(null);
 
   // ── Live Detection Model & Sensitivity State ──
-  const [selectedModel, setSelectedModel] = useState<'browser' | 'yoloe' | 'yolov9' | 'yoloworld' | 'yolo11m'>('browser');
+  const [selectedModel, setSelectedModel] = useState<'browser' | 'yoloe' | 'yolov9' | 'yoloworld' | 'yolo11m' | 'yolo26s'>('browser');
   const [liveConfidence, setLiveConfidence] = useState<number>(0.35);
-  const selectedModelRef = useRef<'browser' | 'yoloe' | 'yolov9' | 'yoloworld' | 'yolo11m'>('browser');
+  const selectedModelRef = useRef<'browser' | 'yoloe' | 'yolov9' | 'yoloworld' | 'yolo11m' | 'yolo26s'>('browser');
   const liveConfidenceRef = useRef<number>(0.35);
 
   // Open-Vocabulary Target Classes for YOLO-World
@@ -1370,6 +1370,17 @@ export default function Objects() {
                 {/* Model Selector Pill (Live Mode Only) */}
                 {scanMode === 'live' && (
                   <div className="flex bg-background border border-border rounded-xl p-0.5 text-xs flex-wrap gap-0.5">
+                    <button
+                      disabled={isLiveCameraActive}
+                      onClick={() => setSelectedModel('yolo26s')}
+                      title="YOLO26s backend detector with ByteTrack tracking, CPU-friendly benchmark option"
+                      className={cn(
+                        "px-3 py-1 rounded-lg text-[11px] font-bold transition-all",
+                        selectedModel === 'yolo26s' ? "bg-blue-500/20 text-blue-300 border border-blue-500/40" : "text-text-muted hover:text-text"
+                      )}
+                    >
+                      YOLO26s + ByteTrack
+                    </button>
                     <button disabled={isLiveCameraActive} onClick={() => setSelectedModel('browser')}
                       className={cn("px-3 py-1 rounded-lg text-[11px] font-bold", selectedModel === 'browser' ? "bg-emerald-500 text-white" : "text-text-muted")}>
                       Browser Detection (Free)
