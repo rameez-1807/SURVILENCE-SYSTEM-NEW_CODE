@@ -17,7 +17,12 @@ import {
   Trash2,
   Database,
   Activity,
-  SwitchCamera
+  SwitchCamera,
+  Globe,
+  Cpu,
+  Layers,
+  Lock,
+  Check
 } from 'lucide-react';
 import { api, getWsUrl } from '../lib/api';
 import { cn } from '../utils/cn';
@@ -45,6 +50,100 @@ interface DetectedObject {
   isLlmVerified?: boolean;
   needsReview?: boolean;
 }
+
+interface DetectionModelConfig {
+  id: 'browser' | 'yoloe' | 'yolov9' | 'yoloworld' | 'yolo11m' | 'rfdetr_nano' | 'rfdetr_2xl';
+  name: string;
+  badge: string;
+  tag: string;
+  desc: string;
+  icon: any;
+  iconClass: string;
+  badgeClass: string;
+  activeClass: string;
+  disabled?: boolean;
+}
+
+const DETECTION_MODELS: DetectionModelConfig[] = [
+  {
+    id: 'rfdetr_nano',
+    name: 'RF-DETR Nano (Transformer)',
+    badge: 'DINOv2 ViT • ByteTrack',
+    tag: 'Vision Transformer',
+    desc: 'Real-Time Detection Transformer with DINOv2 backbone and persistent ByteTrack IDs.',
+    icon: Cpu,
+    iconClass: 'text-purple-400 bg-purple-500/15',
+    badgeClass: 'bg-purple-500/15 text-purple-400 border-purple-500/30',
+    activeClass: 'border-purple-500/60 bg-purple-500/10 shadow-purple-500/10 ring-purple-500/30'
+  },
+  {
+    id: 'browser',
+    name: 'Browser Detection (Free)',
+    badge: 'Client-Side • Free',
+    tag: 'Zero Lag (80 COCO)',
+    desc: 'Runs on your device with COCO-SSD (80 classes). Zero server latency & free compute.',
+    icon: Globe,
+    iconClass: 'text-emerald-400 bg-emerald-500/15',
+    badgeClass: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+    activeClass: 'border-emerald-500/60 bg-emerald-500/10 shadow-emerald-500/10 ring-emerald-500/30'
+  },
+  {
+    id: 'yoloe',
+    name: 'YOLOE Auto Detect (Prompt-Free)',
+    badge: 'Prompt-Free • ByteTrack',
+    tag: 'Zero-Prompt AI',
+    desc: 'Genuine Ultralytics prompt-free neural network + ByteTrack. Automatically identifies everyday items without manual class input.',
+    icon: Sparkles,
+    iconClass: 'text-cyan-400 bg-cyan-500/15',
+    badgeClass: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30',
+    activeClass: 'border-cyan-500/60 bg-cyan-500/10 shadow-cyan-500/10 ring-cyan-500/30'
+  },
+  {
+    id: 'yolov9',
+    name: 'YOLOv9-C (Official + ByteTrack)',
+    badge: 'PGI Architecture • COCO 80',
+    tag: 'SOTA Precision',
+    desc: 'Official YOLOv9-C architecture with Programmable Gradient Info (PGI) & ByteTrack tracking.',
+    icon: Zap,
+    iconClass: 'text-amber-400 bg-amber-500/15',
+    badgeClass: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+    activeClass: 'border-amber-500/60 bg-amber-500/10 shadow-amber-500/10 ring-amber-500/30'
+  },
+  {
+    id: 'yoloworld',
+    name: 'YOLO-World (Open-Vocab)',
+    badge: 'Open-Vocab • Dynamic',
+    tag: 'Custom Classes',
+    desc: 'Detect any custom object class or prompt vocabulary with real-time text-image binding.',
+    icon: Box,
+    iconClass: 'text-indigo-400 bg-indigo-500/15',
+    badgeClass: 'bg-indigo-500/15 text-indigo-400 border-indigo-500/30',
+    activeClass: 'border-indigo-500/60 bg-indigo-500/10 shadow-indigo-500/10 ring-indigo-500/30'
+  },
+  {
+    id: 'yolo11m',
+    name: 'YOLO11m (Standard COCO)',
+    badge: 'COCO 80 • Balanced',
+    tag: 'Balanced Speed & Accuracy',
+    desc: 'Balanced speed and precision YOLO11 medium model for robust multi-object identification.',
+    icon: Layers,
+    iconClass: 'text-sky-400 bg-sky-500/15',
+    badgeClass: 'bg-sky-500/15 text-sky-400 border-sky-500/30',
+    activeClass: 'border-sky-500/60 bg-sky-500/10 shadow-sky-500/10 ring-sky-500/30'
+  },
+  {
+    id: 'rfdetr_2xl',
+    name: 'RF-DETR 2XL (GPU Only)',
+    badge: '126M Large Model',
+    tag: 'Cloud GPU Required',
+    desc: 'Requires dedicated NVIDIA CUDA GPU (8GB+ VRAM). Dedicated server accelerator required.',
+    icon: Lock,
+    iconClass: 'text-text-muted/40 bg-surface',
+    badgeClass: 'bg-surface text-text-muted/60 border-border/40',
+    activeClass: 'border-border/40 bg-surface/30',
+    disabled: true
+  }
+];
 
 export default function Objects() {
   const [events, setEvents] = useState<ObjectDetectionEvent[]>([]);
@@ -79,9 +178,9 @@ export default function Objects() {
   const [selectedEvent, setSelectedEvent] = useState<ObjectDetectionEvent | null>(null);
 
   // ── Live Detection Model & Sensitivity State ──
-  const [selectedModel, setSelectedModel] = useState<'browser' | 'yoloe' | 'yolov9' | 'yoloworld' | 'yolo11m' | 'rfdetr_nano' | 'rfdetr_2xl'>('browser');
+  const [selectedModel, setSelectedModel] = useState<'browser' | 'yoloe' | 'yolov9' | 'yoloworld' | 'yolo11m' | 'rfdetr_nano' | 'rfdetr_2xl'>('rfdetr_nano');
   const [liveConfidence, setLiveConfidence] = useState<number>(0.35);
-  const selectedModelRef = useRef<'browser' | 'yoloe' | 'yolov9' | 'yoloworld' | 'yolo11m' | 'rfdetr_nano' | 'rfdetr_2xl'>('browser');
+  const selectedModelRef = useRef<'browser' | 'yoloe' | 'yolov9' | 'yoloworld' | 'yolo11m' | 'rfdetr_nano' | 'rfdetr_2xl'>('rfdetr_nano');
   const liveConfidenceRef = useRef<number>(0.35);
 
   // Open-Vocabulary Target Classes for YOLO-World
@@ -611,6 +710,22 @@ export default function Objects() {
     setLiveError(null);
   }, []);
 
+  const handleModelChange = useCallback((newModel: typeof selectedModel) => {
+    if (newModel === selectedModel) return;
+    const wasBrowser = selectedModel === 'browser';
+    const isNowBrowser = newModel === 'browser';
+    setSelectedModel(newModel);
+    selectedModelRef.current = newModel;
+
+    // If live camera is currently active and user switches between browser and backend runner:
+    if (isLiveCameraActive && (wasBrowser || isNowBrowser)) {
+      stopLiveCamera();
+      setTimeout(() => {
+        startLiveCamera();
+      }, 250);
+    }
+  }, [selectedModel, isLiveCameraActive, stopLiveCamera, startLiveCamera]);
+
   const toggleCameraFacing = async () => {
     const nextFacing = cameraFacingMode === 'environment' ? 'user' : 'environment';
     setCameraFacingMode(nextFacing);
@@ -707,7 +822,14 @@ export default function Objects() {
   const fetchDetections = useCallback(async () => {
     try {
       const res = await api.get('/events?limit=200');
-      const allEvents: ObjectDetectionEvent[] = res.data || [];
+      const raw = res.data;
+      const allEvents: ObjectDetectionEvent[] = Array.isArray(raw)
+        ? raw
+        : (Array.isArray(raw?.items)
+            ? raw.items
+            : (Array.isArray(raw?.events)
+                ? raw.events
+                : (Array.isArray(raw?.data) ? raw.data : [])));
       
       // Filter events related to object detection
       const detections = allEvents.filter((e) => 
@@ -1366,93 +1488,6 @@ export default function Objects() {
                     <Upload className="w-3.5 h-3.5" /> Photo Upload
                   </button>
                 </div>
-
-                {/* Model Selector Pill (Live Mode Only) */}
-                {scanMode === 'live' && (
-                  <div className="flex bg-background border border-border rounded-xl p-0.5 text-xs flex-wrap gap-0.5">
-                    <button disabled={isLiveCameraActive} onClick={() => setSelectedModel('browser')}
-                      className={cn("px-3 py-1 rounded-lg text-[11px] font-bold", selectedModel === 'browser' ? "bg-emerald-500 text-white" : "text-text-muted")}>
-                      Browser Detection (Free)
-                    </button>
-                    <button
-                      disabled={isLiveCameraActive}
-                      onClick={() => setSelectedModel('yoloe')}
-                      title="Genuine Ultralytics YOLOE Prompt-Free neural network with ByteTrack. Automatically identifies everyday objects without manual class input."
-                      className={cn(
-                        "flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] font-bold transition-all",
-                        selectedModel === 'yoloe' 
-                          ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs" 
-                          : "text-text-muted hover:text-text"
-                      )}
-                    >
-                      <Sparkles className="w-3 h-3 text-cyan-400" />
-                      YOLOE Auto Detect (Prompt-Free)
-                    </button>
-                    <button
-                      disabled={isLiveCameraActive}
-                      onClick={() => setSelectedModel('yolov9')}
-                      title="Official YOLOv9-C detector with ByteTrack multi-object tracking (COCO 80 classes)"
-                      className={cn(
-                        "flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] font-bold transition-all",
-                        selectedModel === 'yolov9' 
-                          ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-xs" 
-                          : "text-text-muted hover:text-text"
-                      )}
-                    >
-                      <Zap className="w-3 h-3 text-amber-400" />
-                      YOLOv9-C (Official + ByteTrack)
-                    </button>
-                    <button
-                      disabled={isLiveCameraActive}
-                      onClick={() => setSelectedModel('yoloworld')}
-                      title="YOLO-World Open-Vocabulary detector with custom class vocabulary and ByteTrack tracking"
-                      className={cn(
-                        "flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] font-bold transition-all",
-                        selectedModel === 'yoloworld' 
-                          ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-xs" 
-                          : "text-text-muted hover:text-text"
-                      )}
-                    >
-                      <Box className="w-3 h-3 text-indigo-400" />
-                      YOLO-World (Open-Vocab)
-                    </button>
-                    <button
-                      disabled={isLiveCameraActive}
-                      onClick={() => setSelectedModel('yolo11m')}
-                      title="COCO standard 80 classes fixed detector"
-                      className={cn(
-                        "px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all",
-                        selectedModel === 'yolo11m' 
-                          ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-xs" 
-                          : "text-text-muted hover:text-text"
-                      )}
-                    >
-                      YOLO11m (Standard COCO)
-                    </button>
-                    <button
-                      disabled={isLiveCameraActive}
-                      onClick={() => setSelectedModel('rfdetr_nano')}
-                      title="RF-DETR-Nano Real-Time Detection Transformer with DINOv2 backbone and ByteTrack tracking (80 COCO classes)"
-                      className={cn(
-                        "flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] font-bold transition-all",
-                        selectedModel === 'rfdetr_nano' 
-                          ? "bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-xs" 
-                          : "text-text-muted hover:text-text"
-                      )}
-                    >
-                      <Sparkles className="w-3 h-3 text-purple-400" />
-                      RF-DETR Nano (Transformer)
-                    </button>
-                    <button
-                      disabled={true}
-                      title="RF-DETR 2XL (126M params, 880x880) requires dedicated NVIDIA CUDA GPU (8GB+ VRAM) and explicit Platform Model License (PML 1.0) acceptance. Currently disabled."
-                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium text-text-muted/40 border border-border/40 cursor-not-allowed opacity-60"
-                    >
-                      <Box className="w-3 h-3 text-text-muted/40" />
-                      RF-DETR 2XL (GPU Only)
-                    </button>
-                  </div>
-                )}
               </div>
 
               {/* Confidence Threshold Slider & Status indicators */}
@@ -1507,6 +1542,178 @@ export default function Objects() {
                 )}
               </div>
             </div>
+
+            {/* Dedicated AI Model Selector Box (Live Mode Only) */}
+            {scanMode === 'live' && (
+              <div className="p-3.5 bg-surface/50 border-b border-border/80 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Cpu className="w-4 h-4 text-purple-400" />
+                    <span className="text-xs font-bold text-text uppercase tracking-wider">Detection Model Engine</span>
+                    <span className="text-[11px] text-text-muted hidden sm:inline">• Choose any model</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-purple-500/10 text-purple-300 border border-purple-500/25">
+                      <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+                      Active: {DETECTION_MODELS.find(m => m.id === selectedModel)?.name || 'Model'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* #1 FEATURED TOP MODEL: RF-DETR Nano Transformer */}
+                {(() => {
+                  const rfModel = DETECTION_MODELS.find(m => m.id === 'rfdetr_nano')!;
+                  const isSelected = selectedModel === 'rfdetr_nano';
+                  const Icon = rfModel.icon;
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => handleModelChange('rfdetr_nano')}
+                      className={cn(
+                        "w-full relative flex items-center justify-between p-3 rounded-xl border text-left transition-all cursor-pointer group select-none",
+                        isSelected
+                          ? "bg-purple-500/15 border-purple-500/80 shadow-[0_0_15px_rgba(168,85,247,0.2)] ring-1 ring-purple-500/50"
+                          : "bg-surface/70 border-purple-500/30 hover:bg-surface-hover hover:border-purple-500/50"
+                      )}
+                    >
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div className="p-2.5 rounded-xl bg-purple-500/20 text-purple-300 border border-purple-500/40 shrink-0 shadow-xs">
+                          <Icon className="w-4 h-4 animate-pulse" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-extrabold text-white text-xs tracking-tight group-hover:text-purple-300 transition-colors">
+                              RF-DETR Nano (Transformer)
+                            </span>
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                              ⭐ PREMIER ViT MODEL
+                            </span>
+                            {isSelected && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 animate-pulse">
+                                ACTIVE NOW
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-text-muted mt-0.5 leading-snug">
+                            DINOv2 Real-Time Vision Transformer with ByteTrack persistent multi-object tracking (COCO 80 classes)
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="shrink-0 ml-3">
+                        {isSelected ? (
+                          <div className="w-5 h-5 rounded-full bg-purple-500 text-white flex items-center justify-center shadow-xs">
+                            <Check className="w-3 h-3 stroke-[3]" />
+                          </div>
+                        ) : (
+                          <div className="w-5 h-5 rounded-full border border-border group-hover:border-purple-400" />
+                        )}
+                      </div>
+                    </button>
+                  );
+                })()}
+
+                {/* OTHER MODELS (Full names clearly readable in 2 generous columns, zero truncation) */}
+                <div>
+                  <div className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                    <span>Alternative AI Models</span>
+                    <span className="text-[9px] font-normal lowercase text-text-muted/70">tap to switch</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {DETECTION_MODELS.filter(m => m.id !== 'rfdetr_nano').map((m) => {
+                      const isSelected = selectedModel === m.id;
+                      const Icon = m.icon;
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          disabled={m.disabled}
+                          onClick={() => !m.disabled && handleModelChange(m.id)}
+                          title={m.desc}
+                          className={cn(
+                            "relative flex flex-col justify-between p-2.5 rounded-xl border text-left transition-all cursor-pointer group text-xs select-none min-h-[72px]",
+                            isSelected
+                              ? cn("ring-1 shadow-sm", m.activeClass)
+                              : m.disabled
+                              ? "opacity-40 cursor-not-allowed bg-surface/20 border-border/40"
+                              : "bg-surface/60 border-border/70 hover:bg-surface-hover/80 hover:border-cyan-500/40"
+                          )}
+                        >
+                          <div className="flex items-start justify-between gap-1.5 w-full mb-1">
+                            <div className="flex items-start gap-2 min-w-0 flex-1">
+                              <div className={cn("p-1.5 rounded-lg shrink-0 mt-0.5", m.iconClass)}>
+                                <Icon className="w-3.5 h-3.5" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="font-bold text-text group-hover:text-cyan-300 transition-colors text-[11px] leading-tight break-words">
+                                  {m.name}
+                                </div>
+                                <div className="text-[10px] text-text-muted mt-0.5 leading-tight">
+                                  {m.tag}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="shrink-0 mt-0.5">
+                              {isSelected ? (
+                                <div className="w-4 h-4 rounded-full bg-cyan-500 text-white flex items-center justify-center shadow-xs">
+                                  <Check className="w-2.5 h-2.5 stroke-[3]" />
+                                </div>
+                              ) : (
+                                <div className="w-4 h-4 rounded-full border border-border group-hover:border-text-muted/60" />
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="mt-1 flex items-center justify-between w-full pt-1 border-t border-border/40">
+                            <span className={cn("px-1.5 py-0.5 rounded text-[9px] font-semibold border", m.badgeClass)}>
+                              {m.badge}
+                            </span>
+                            {isSelected && (
+                              <span className="text-[9px] font-mono text-cyan-400 font-bold uppercase tracking-wider">
+                                Selected
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Browser Detection Free Banner */}
+            {scanMode === 'live' && selectedModel === 'browser' && (
+              <div className="px-4 py-2 bg-gradient-to-r from-emerald-950/40 via-surface/80 to-surface/70 border-b border-border/80 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2 text-text-muted text-[11px]">
+                  <Globe className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <span className="font-semibold text-text">Browser COCO-SSD Active</span>
+                  <span className="hidden sm:inline text-text-muted">· Free client-side inference on your device (80 COCO classes) with zero server lag</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/25 text-[10px] font-semibold">
+                    Client TF.js Lite
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* YOLO11m Standard Banner */}
+            {scanMode === 'live' && selectedModel === 'yolo11m' && (
+              <div className="px-4 py-2 bg-gradient-to-r from-sky-950/40 via-surface/80 to-surface/70 border-b border-border/80 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2 text-text-muted text-[11px]">
+                  <Layers className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                  <span className="font-semibold text-text">YOLO11m Standard Active</span>
+                  <span className="hidden sm:inline text-text-muted">· Standard 80-class COCO neural network detector</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-300 border border-sky-500/25 text-[10px] font-semibold">
+                    Checkpoint: yolo11m.pt
+                  </span>
+                </div>
+              </div>
+            )}
 
             {/* YOLOE Prompt-Free Official Model Banner */}
             {scanMode === 'live' && selectedModel === 'yoloe' && (

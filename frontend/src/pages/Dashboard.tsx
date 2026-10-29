@@ -48,14 +48,37 @@ export default function Dashboard() {
 
       if (camerasRes.status === 'rejected' || eventsRes.status === 'rejected') {
         const camErr = camerasRes.status === 'rejected' ? camerasRes.reason : null;
-        if (camErr?.response?.status === 401 || camErr?.response?.status === 403) {
+        const evtErr = eventsRes.status === 'rejected' ? eventsRes.reason : null;
+        if (
+          camErr?.response?.status === 401 ||
+          camErr?.response?.status === 403 ||
+          evtErr?.response?.status === 401 ||
+          evtErr?.response?.status === 403
+        ) {
           throw new Error('Authentication required. Please log in.');
         }
         throw new Error('Failed to connect to the backend services.');
       }
 
-      const cameras = camerasRes.value.data.items || [];
-      const events = eventsRes.value.data || [];
+      // Safe defensive extraction for cameras
+      const rawCameras = camerasRes.value?.data;
+      const cameras: any[] = Array.isArray(rawCameras)
+        ? rawCameras
+        : (Array.isArray(rawCameras?.items)
+            ? rawCameras.items
+            : (Array.isArray(rawCameras?.cameras)
+                ? rawCameras.cameras
+                : (Array.isArray(rawCameras?.data) ? rawCameras.data : [])));
+
+      // Safe defensive extraction for events
+      const rawEvents = eventsRes.value?.data;
+      const events: any[] = Array.isArray(rawEvents)
+        ? rawEvents
+        : (Array.isArray(rawEvents?.items)
+            ? rawEvents.items
+            : (Array.isArray(rawEvents?.events)
+                ? rawEvents.events
+                : (Array.isArray(rawEvents?.data) ? rawEvents.data : [])));
 
       // Compute KPIs
       const camerasOnline = cameras.filter((c: any) => c.status === 'active').length;

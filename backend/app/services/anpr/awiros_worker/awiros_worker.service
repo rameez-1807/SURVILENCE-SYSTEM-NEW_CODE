@@ -1,0 +1,18 @@
+[Unit]
+Description=Awiros ANPR OCR Persistent Micro-Worker (Python 3.11)
+After=network.target
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/home/ec2-user/SURVILENCE-SYSTEM_NEW_CODE/backend/app/services/anpr/awiros_worker
+Environment="AWIROS_MODEL_DIR=/home/ec2-user/SURVILENCE-SYSTEM_NEW_CODE/backend/app/services/anpr/awiros_worker/models"
+ExecStart=/home/ec2-user/SURVILENCE-SYSTEM_NEW_CODE/backend/app/services/anpr/awiros_worker/venv/bin/python worker.py --port 8008
+Restart=always
+RestartSec=3
+MemoryMax=1.5G
+CPUQuota=200%
+
+[Install]
+WantedBy=multi-user.target
+

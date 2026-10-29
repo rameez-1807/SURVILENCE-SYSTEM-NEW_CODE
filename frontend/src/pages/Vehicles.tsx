@@ -29,7 +29,10 @@ import {
   RotateCcw,
   Cpu,
   BarChart2,
-  SwitchCamera
+  SwitchCamera,
+  Check,
+  Sparkles,
+  Layers
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { cn } from '../utils/cn';
@@ -57,6 +60,67 @@ interface VehicleStats {
   bus_count: number;
   motorcycle_count: number;
 }
+
+interface ANPREngineConfig {
+  id: 'yolo_easyocr' | 'hybrid_anpr' | 'indian_anpr' | 'fast_alpr';
+  name: string;
+  badge: string;
+  tag: string;
+  desc: string;
+  icon: any;
+  iconClass: string;
+  badgeClass: string;
+  activeClass: string;
+  isDefault?: boolean;
+}
+
+const ANPR_ENGINES: ANPREngineConfig[] = [
+  {
+    id: 'yolo_easyocr',
+    name: 'YOLO + EasyOCR',
+    badge: 'Default • Verified',
+    tag: 'Production Surveillance',
+    desc: 'Original production ANPR pipeline: multi-class YOLO detector + adaptive contrast and EasyOCR with positional Indian RTO corrections.',
+    icon: RotateCcw,
+    iconClass: 'text-blue-400 bg-blue-500/15',
+    badgeClass: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
+    activeClass: 'border-blue-500/70 bg-blue-500/10 shadow-blue-500/10 ring-blue-500/30',
+    isDefault: true
+  },
+  {
+    id: 'hybrid_anpr',
+    name: 'Hybrid ANPR',
+    badge: 'Awiros ViT • Fallback',
+    tag: 'High Accuracy (80.4%)',
+    desc: 'High-accuracy ensemble combining YOLO plate detector (best.pt), layout-aware Awiros OCR worker, and EasyOCR validation fallback.',
+    icon: Sparkles,
+    iconClass: 'text-purple-400 bg-purple-500/15',
+    badgeClass: 'bg-purple-500/15 text-purple-400 border-purple-500/30',
+    activeClass: 'border-purple-500/70 bg-purple-500/10 shadow-purple-500/10 ring-purple-500/30'
+  },
+  {
+    id: 'indian_anpr',
+    name: 'Indian ANPR',
+    badge: '2-Line HSRP • RTO Snap',
+    tag: 'Specialized Indian Plates',
+    desc: 'Optimized for Indian vehicle registrations: handles two-line motorcycle plates, HSRP layout, CLAHE contrast, and state RTO snap.',
+    icon: Layers,
+    iconClass: 'text-emerald-400 bg-emerald-500/15',
+    badgeClass: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+    activeClass: 'border-emerald-500/70 bg-emerald-500/10 shadow-emerald-500/10 ring-emerald-500/30'
+  },
+  {
+    id: 'fast_alpr',
+    name: 'FastALPR',
+    badge: 'ONNX • ~150ms Stream',
+    tag: 'Ultra High Speed',
+    desc: 'Ultra high-speed ONNX Runtime ALPR combining YOLOv9 detector and Compact Convolutional Transformer OCR for live streams.',
+    icon: Zap,
+    iconClass: 'text-amber-400 bg-amber-500/15',
+    badgeClass: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+    activeClass: 'border-amber-500/70 bg-amber-500/10 shadow-amber-500/10 ring-amber-500/30'
+  }
+];
 
 const LOCATION_OPTIONS = [
   { id: '', label: 'Select Spot (Optional)', category: 'None', icon: MapPin },
@@ -88,11 +152,12 @@ export default function Vehicles() {
   const [selectedVehicleDetail, setSelectedVehicleDetail] = useState<VehicleRecord | null>(null);
 
   // ANPR Recognition Engine Selector State
-  const [selectedEngine, setSelectedEngine] = useState<'indian_anpr' | 'fast_alpr' | 'yolo_easyocr'>('indian_anpr');
+  const [selectedEngine, setSelectedEngine] = useState<'yolo_easyocr' | 'hybrid_anpr' | 'indian_anpr' | 'fast_alpr'>('yolo_easyocr');
   const [availableEngines, setAvailableEngines] = useState<Array<{ id: string; name: string; description: string; is_default?: boolean }>>([
-    { id: 'indian_anpr', name: 'Indian ANPR (YOLO + Multi-Pass OCR)', description: 'Specialized for Indian plates, two-line bike HSRP, state RTO codes', is_default: true },
+    { id: 'yolo_easyocr', name: 'YOLO + EasyOCR (Default Engine)', description: 'Production-proven pipeline with smart positional Indian RTO corrections', is_default: true },
+    { id: 'hybrid_anpr', name: 'Hybrid ANPR (YOLO + Awiros + EasyOCR)', description: 'High-accuracy ensemble: YOLO detection + layout-aware Awiros OCR + EasyOCR fallback', is_default: false },
     { id: 'fast_alpr', name: 'FastALPR (ONNX Runtime)', description: 'Ultra high-speed ONNX runtime ALPR for live webcam & streaming (~150ms)', is_default: false },
-    { id: 'yolo_easyocr', name: 'YOLO + EasyOCR (Backup Engine)', description: 'Original surveillance system backup pipeline', is_default: false }
+    { id: 'indian_anpr', name: 'Indian ANPR (YOLO + Multi-Pass OCR)', description: 'Specialized for Indian plates, two-line bike HSRP, state RTO codes', is_default: false }
   ]);
   const [lastDetectedEngine, setLastDetectedEngine] = useState<string | null>(null);
   const [lastDetectedLatency, setLastDetectedLatency] = useState<number | null>(null);
@@ -1048,7 +1113,7 @@ export default function Vehicles() {
         icon={Car}
         badge={
           <Badge variant="cyan" size="xs" dot pulse>
-            {selectedEngine === 'fast_alpr' ? '⚡ FASTALPR (ONNX)' : selectedEngine === 'indian_anpr' ? '🇮🇳 INDIAN ANPR' : '🔄 YOLO+EASYOCR'}
+            {selectedEngine === 'hybrid_anpr' ? '⚡ HYBRID ANPR' : selectedEngine === 'fast_alpr' ? '⚡ FASTALPR (ONNX)' : selectedEngine === 'indian_anpr' ? '🇮🇳 INDIAN ANPR' : '🔄 YOLO+EASYOCR'}
           </Badge>
         }
       >
@@ -1265,11 +1330,12 @@ export default function Vehicles() {
             </div>
 
             {/* ANPR Engine Selector & Benchmark Toolbar */}
-            <div className="px-3.5 py-2.5 bg-surface-hover/40 border-b border-border flex flex-col gap-2 text-xs">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="flex items-center gap-1.5 text-[11px] font-bold text-text-muted">
-                  <Cpu className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>Recognition Engine ({availableEngines.length} Available):</span>
+            <div className="p-3.5 bg-surface/50 border-b border-border/80 space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Cpu className="w-4 h-4 text-cyan-400" />
+                  <span className="text-xs font-bold text-text uppercase tracking-wider">ANPR Recognition Engine</span>
+                  <span className="text-[11px] text-text-muted hidden sm:inline">• {availableEngines.length || 4} Available</span>
                 </div>
 
                 <button
@@ -1277,7 +1343,7 @@ export default function Vehicles() {
                   onClick={handleRunBenchmark}
                   disabled={isBenchmarkRunning}
                   className="flex items-center gap-1.5 px-2.5 py-1 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 rounded-lg text-[11px] font-bold transition-all shadow-xs cursor-pointer disabled:opacity-50"
-                  title="Benchmark exact full-plate accuracy of all 3 engines on identical labelled Indian plate images"
+                  title="Benchmark exact full-plate accuracy of all engines on identical labelled Indian plate images"
                 >
                   {isBenchmarkRunning ? (
                     <>
@@ -1293,61 +1359,81 @@ export default function Vehicles() {
                 </button>
               </div>
 
-              {/* 3 Engine Switcher Buttons */}
-              <div className="grid grid-cols-3 gap-1.5 p-1 bg-background border border-border rounded-xl">
-                <button
-                  type="button"
-                  onClick={() => setSelectedEngine('indian_anpr')}
-                  className={cn(
-                    "px-2 py-1.5 rounded-lg text-[11px] font-bold transition-all flex flex-col items-center justify-center text-center cursor-pointer border",
-                    selectedEngine === 'indian_anpr'
-                      ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-xs ring-1 ring-emerald-500/30"
-                      : "bg-surface/50 text-text-muted border-transparent hover:text-text hover:bg-surface"
-                  )}
-                  title="Indian ANPR: Fine-tuned YOLO detector + Multi-pass CLAHE, Otsu, deskew, and two-line HSRP OCR"
-                >
-                  <span className="flex items-center gap-1">
-                    <span>🇮🇳</span>
-                    <span>Indian ANPR</span>
-                  </span>
-                  <span className="text-[9px] opacity-75 font-normal">YOLO + Multi-Pass</span>
-                </button>
+              {/* 2-Column Responsive Card Grid for 4 Engines */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {ANPR_ENGINES.map((engine) => {
+                  const isSelected = selectedEngine === engine.id;
+                  const Icon = engine.icon;
+                  return (
+                    <button
+                      key={engine.id}
+                      type="button"
+                      onClick={() => setSelectedEngine(engine.id)}
+                      title={engine.desc}
+                      className={cn(
+                        "relative flex flex-col justify-between p-2.5 rounded-xl border text-left transition-all cursor-pointer group text-xs select-none min-h-[76px]",
+                        isSelected
+                          ? cn("ring-1 shadow-sm", engine.activeClass)
+                          : "bg-surface/60 border-border/70 hover:bg-surface-hover/80 hover:border-cyan-500/40"
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-1.5 w-full mb-1">
+                        <div className="flex items-start gap-2 min-w-0 flex-1">
+                          <div className={cn("p-1.5 rounded-lg shrink-0 mt-0.5", engine.iconClass)}>
+                            <Icon className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="font-bold text-text group-hover:text-cyan-300 transition-colors text-[11px] leading-tight break-words">
+                              {engine.name}
+                            </div>
+                            <div className="text-[10px] text-text-muted mt-0.5 leading-tight">
+                              {engine.tag}
+                            </div>
+                          </div>
+                        </div>
 
-                <button
-                  type="button"
-                  onClick={() => setSelectedEngine('fast_alpr')}
-                  className={cn(
-                    "px-2 py-1.5 rounded-lg text-[11px] font-bold transition-all flex flex-col items-center justify-center text-center cursor-pointer border",
-                    selectedEngine === 'fast_alpr'
-                      ? "bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-xs ring-1 ring-amber-500/30"
-                      : "bg-surface/50 text-text-muted border-transparent hover:text-text hover:bg-surface"
-                  )}
-                  title="FastALPR: ONNX Runtime YOLOv9 + CCT Transformer OCR (~150ms real-time)"
-                >
-                  <span className="flex items-center gap-1">
-                    <Zap className="w-3 h-3 text-amber-400" />
-                    <span>FastALPR</span>
-                  </span>
-                  <span className="text-[9px] opacity-75 font-normal">ONNX High-Speed</span>
-                </button>
+                        <div className="shrink-0 mt-0.5">
+                          {isSelected ? (
+                            <div className="w-4 h-4 rounded-full bg-cyan-500 text-white flex items-center justify-center shadow-xs">
+                              <Check className="w-2.5 h-2.5 stroke-[3]" />
+                            </div>
+                          ) : (
+                            <div className="w-4 h-4 rounded-full border border-border group-hover:border-text-muted/60" />
+                          )}
+                        </div>
+                      </div>
 
-                <button
-                  type="button"
-                  onClick={() => setSelectedEngine('yolo_easyocr')}
-                  className={cn(
-                    "px-2 py-1.5 rounded-lg text-[11px] font-bold transition-all flex flex-col items-center justify-center text-center cursor-pointer border",
-                    selectedEngine === 'yolo_easyocr'
-                      ? "bg-blue-500/20 text-blue-300 border-blue-500/40 shadow-xs ring-1 ring-blue-500/30"
-                      : "bg-surface/50 text-text-muted border-transparent hover:text-text hover:bg-surface"
-                  )}
-                  title="YOLO + EasyOCR: Original surveillance system backup engine"
-                >
-                  <span className="flex items-center gap-1">
-                    <RotateCcw className="w-3 h-3 text-blue-400" />
-                    <span>YOLO+EasyOCR</span>
+                      <div className="mt-1 flex items-center justify-between w-full pt-1 border-t border-border/40">
+                        <span className={cn("px-1.5 py-0.5 rounded text-[9px] font-semibold border", engine.badgeClass)}>
+                          {engine.badge}
+                        </span>
+                        {isSelected && (
+                          <span className="text-[9px] font-mono text-cyan-400 font-bold uppercase tracking-wider">
+                            Active
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Informative Active Engine Info Banner */}
+              <div className="px-3 py-1.5 rounded-lg bg-surface/70 border border-border/60 flex items-center justify-between text-[11px]">
+                <div className="flex items-center gap-1.5 text-text-muted truncate">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                  <span className="font-semibold text-text truncate">
+                    {ANPR_ENGINES.find(e => e.id === selectedEngine)?.name} Active
                   </span>
-                  <span className="text-[9px] opacity-75 font-normal">Backup Engine</span>
-                </button>
+                  <span className="hidden sm:inline text-text-muted truncate">
+                    — {ANPR_ENGINES.find(e => e.id === selectedEngine)?.desc.slice(0, 80)}...
+                  </span>
+                </div>
+                {lastDetectedLatency !== null && (
+                  <span className="text-[10px] font-mono text-cyan-400 shrink-0 font-bold ml-2">
+                    ⚡ {lastDetectedLatency.toFixed(0)}ms
+                  </span>
+                )}
               </div>
             </div>
 

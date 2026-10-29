@@ -111,7 +111,10 @@ class EvidenceCaptureManager:
         filepath = EVIDENCE_DIR / filename
 
         try:
-            cv2.imwrite(str(filepath), annotated, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            try:
+                cv2.imwrite(str(filepath), annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+            except (TypeError, cv2.error):
+                cv2.imwrite(str(filepath), annotated)
             rel_path = f"/evidence/snapshots/{filename}"
             logger.info(f"Evidence snapshot saved: {rel_path}")
             return rel_path

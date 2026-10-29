@@ -117,7 +117,7 @@ async def scan_vehicle_plate(
             camera_name=payload.camera_name or "Live ANPR Camera",
             location_spot=payload.location_spot or "Apartment Main Gate",
             is_live_stream=bool(payload.is_live_stream),
-            engine=payload.engine or "indian_anpr"
+            engine=payload.engine or "yolo_easyocr"
         )
         if not success or not record:
             return ANPRScanResponse(

@@ -1,0 +1,19 @@
+# Isolated Python 3.11 Environment Dependencies for Awiros ANPR OCR Worker
+# DO NOT install into the main FastAPI virtual environment.
+# Install inside a dedicated Python 3.11 virtualenv:
+#   python3.11 -m venv venv_awiros
+#   venv_awiros/bin/pip install -r requirements_worker.txt
+
+paddlepaddle==2.6.2
+safetensors>=0.4.0
+opencv-python-headless>=4.8.0
+numpy>=1.24.0,<2.0.0
+shapely>=2.0.0
+pyclipper>=1.3.0
+scikit-image>=0.21.0
+tqdm>=4.65.0
+rapidfuzz>=3.0.0
+psutil>=5.9.0
+requests>=2.31.0
+huggingface_hub>=0.20.0
+

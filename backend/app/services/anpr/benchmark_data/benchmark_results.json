@@ -1,22 +1,14 @@
 {
-  "timestamp": "2026-10-13 02:25:12",
+  "timestamp": "2026-10-29 22:21:07",
   "total_images": 17,
   "engine_summaries": {
-    "indian_anpr": {
-      "name": "Indian ANPR (YOLO + Multi-Pass OCR)",
+    "hybrid_anpr": {
+      "name": "Hybrid ANPR (YOLO + Awiros + EasyOCR Fallback)",
       "total_tested": 17,
-      "exact_matches": 1,
-      "exact_accuracy_pct": 5.88,
-      "avg_char_accuracy_pct": 63.33,
-      "avg_latency_ms": 2071.7
-    },
-    "fast_alpr": {
-      "name": "FastALPR (ONNX Runtime)",
-      "total_tested": 17,
-      "exact_matches": 5,
-      "exact_accuracy_pct": 29.41,
-      "avg_char_accuracy_pct": 86.16,
-      "avg_latency_ms": 102.9
+      "exact_matches": 11,
+      "exact_accuracy_pct": 64.71,
+      "avg_char_accuracy_pct": 92.16,
+      "avg_latency_ms": 2624.1
     },
     "yolo_easyocr": {
       "name": "YOLO + EasyOCR (Backup Engine)",
@@ -24,7 +16,7 @@
       "exact_matches": 11,
       "exact_accuracy_pct": 64.71,
       "avg_char_accuracy_pct": 79.79,
-      "avg_latency_ms": 1045.5
+      "avg_latency_ms": 700.8
     }
   },
   "detailed_results": [
@@ -33,21 +25,12 @@
       "expected": "MH12DE1433",
       "vehicle_type": "car",
       "predictions": {
-        "indian_anpr": {
-          "plate": "CH42DE00J",
-          "raw_plate": "CH42DEDDJ",
-          "exact_match": false,
-          "confidence": 0.4,
-          "latency_ms": 1334.5,
-          "is_valid_format": true,
-          "vehicle_type": "car"
-        },
-        "fast_alpr": {
+        "hybrid_anpr": {
           "plate": "MH12DE1433",
           "raw_plate": "MH12DE1433",
           "exact_match": true,
-          "confidence": 0.98,
-          "latency_ms": 91.8,
+          "confidence": 0.99,
+          "latency_ms": 15435.8,
           "is_valid_format": true,
           "vehicle_type": "car"
         },
@@ -56,7 +39,7 @@
           "raw_plate": "MH12 DE1433",
           "exact_match": true,
           "confidence": 0.46,
-          "latency_ms": 4656.5,
+          "latency_ms": 845.1,
           "is_valid_format": true,
           "vehicle_type": "car"
         }
@@ -67,30 +50,21 @@
       "expected": "DL1SCA5676",
       "vehicle_type": "car",
       "predictions": {
-        "indian_anpr": {
-          "plate": "VO19SC4567",
-          "raw_plate": "V0L9SC45676",
+        "hybrid_anpr": {
+          "plate": "DL95CA0176",
+          "raw_plate": "DL9SCADL76",
           "exact_match": false,
-          "confidence": 0.69,
-          "latency_ms": 4627.5,
-          "is_valid_format": false,
-          "vehicle_type": "bus"
-        },
-        "fast_alpr": {
-          "plate": "DL95CA56",
-          "raw_plate": "DL9SCA56",
-          "exact_match": false,
-          "confidence": 0.91,
-          "latency_ms": 132.4,
-          "is_valid_format": false,
-          "vehicle_type": "bus"
+          "confidence": 0.95,
+          "latency_ms": 1190.2,
+          "is_valid_format": true,
+          "vehicle_type": "motorcycle"
         },
         "yolo_easyocr": {
           "plate": "DL1SCA5676",
           "raw_plate": "DLJSC 45676",
           "exact_match": true,
           "confidence": 0.78,
-          "latency_ms": 1051.4,
+          "latency_ms": 1129.0,
           "is_valid_format": true,
           "vehicle_type": "motorcycle"
         }
@@ -101,30 +75,21 @@
       "expected": "DL9SCA5676",
       "vehicle_type": "car",
       "predictions": {
-        "indian_anpr": {
-          "plate": "SK45G76",
-          "raw_plate": "SC45676",
-          "exact_match": false,
-          "confidence": 0.71,
-          "latency_ms": 2246.7,
+        "hybrid_anpr": {
+          "plate": "DL9SCA5676",
+          "raw_plate": "DL9SCA5676",
+          "exact_match": true,
+          "confidence": 0.85,
+          "latency_ms": 4076.6,
           "is_valid_format": true,
-          "vehicle_type": "car"
-        },
-        "fast_alpr": {
-          "plate": "DL95CA567",
-          "raw_plate": "DL9SCA567",
-          "exact_match": false,
-          "confidence": 0.96,
-          "latency_ms": 115.6,
-          "is_valid_format": false,
-          "vehicle_type": "car"
+          "vehicle_type": "motorcycle"
         },
         "yolo_easyocr": {
           "plate": "DL9SCA5676",
           "raw_plate": "DL9SC 45676",
           "exact_match": true,
           "confidence": 0.85,
-          "latency_ms": 601.9,
+          "latency_ms": 639.1,
           "is_valid_format": true,
           "vehicle_type": "motorcycle"
         }
@@ -135,21 +100,12 @@
       "expected": "HR21E9920",
       "vehicle_type": "car",
       "predictions": {
-        "indian_anpr": {
-          "plate": "HR21E99200",
-          "raw_plate": "HRZIE99200",
-          "exact_match": false,
-          "confidence": 0.8,
-          "latency_ms": 1245.8,
-          "is_valid_format": true,
-          "vehicle_type": "car"
-        },
-        "fast_alpr": {
+        "hybrid_anpr": {
           "plate": "HR71E9920",
           "raw_plate": "HR71E9920",
           "exact_match": false,
-          "confidence": 0.94,
-          "latency_ms": 94.5,
+          "confidence": 0.96,
+          "latency_ms": 1137.3,
           "is_valid_format": true,
           "vehicle_type": "car"
         },
@@ -158,7 +114,7 @@
           "raw_plate": "HRZ IE9920",
           "exact_match": true,
           "confidence": 0.59,
-          "latency_ms": 741.9,
+          "latency_ms": 741.7,
           "is_valid_format": true,
           "vehicle_type": "car"
         }
@@ -169,21 +125,12 @@
       "expected": "HR45C0005",
       "vehicle_type": "car",
       "predictions": {
-        "indian_anpr": {
-          "plate": "HR15CO0050",
-          "raw_plate": "HRL5C00050",
-          "exact_match": false,
-          "confidence": 0.77,
-          "latency_ms": 1786.0,
-          "is_valid_format": true,
-          "vehicle_type": "car"
-        },
-        "fast_alpr": {
+        "hybrid_anpr": {
           "plate": "HR45C0005",
           "raw_plate": "HR45C0005",
           "exact_match": true,
-          "confidence": 0.97,
-          "latency_ms": 91.2,
+          "confidence": 0.95,
+          "latency_ms": 1146.4,
           "is_valid_format": true,
           "vehicle_type": "car"
         },
@@ -192,7 +139,7 @@
           "raw_plate": "HR 45 C 0005",
           "exact_match": true,
           "confidence": 0.69,
-          "latency_ms": 520.9,
+          "latency_ms": 427.5,
           "is_valid_format": true,
           "vehicle_type": "car"
         }
@@ -203,22 +150,13 @@
       "expected": "JH01FC9394",
       "vehicle_type": "car",
       "predictions": {
-        "indian_anpr": {
-          "plate": "JH01FC9391",
-          "raw_plate": "JHOIFC939I",
-          "exact_match": false,
-          "confidence": 0.53,
-          "latency_ms": 1684.2,
+        "hybrid_anpr": {
+          "plate": "JH01FC9394",
+          "raw_plate": "JH01FC9394",
+          "exact_match": true,
+          "confidence": 0.93,
+          "latency_ms": 2249.2,
           "is_valid_format": true,
-          "vehicle_type": "car"
-        },
-        "fast_alpr": {
-          "plate": "JH01FC939",
-          "raw_plate": "JH01FC939",
-          "exact_match": false,
-          "confidence": 0.94,
-          "latency_ms": 104.3,
-          "is_valid_format": false,
           "vehicle_type": "car"
         },
         "yolo_easyocr": {
@@ -226,7 +164,7 @@
           "raw_plate": "JHO 1FC9394",
           "exact_match": true,
           "confidence": 0.79,
-          "latency_ms": 340.9,
+          "latency_ms": 241.6,
           "is_valid_format": true,
           "vehicle_type": "car"
         }
@@ -237,30 +175,21 @@
       "expected": "KL01A0585",
       "vehicle_type": "car",
       "predictions": {
-        "indian_anpr": {
-          "plate": "KL01AO5850",
-          "raw_plate": "KL01AU5850",
-          "exact_match": false,
-          "confidence": 0.84,
-          "latency_ms": 2387.2,
+        "hybrid_anpr": {
+          "plate": "KL01A0585",
+          "raw_plate": "KL01A0585",
+          "exact_match": true,
+          "confidence": 0.64,
+          "latency_ms": 3636.6,
           "is_valid_format": true,
-          "vehicle_type": "car"
-        },
-        "fast_alpr": {
-          "plate": "KL01AU585",
-          "raw_plate": "KL01AU585",
-          "exact_match": false,
-          "confidence": 0.98,
-          "latency_ms": 113.2,
-          "is_valid_format": false,
-          "vehicle_type": "car"
+          "vehicle_type": "motorcycle"
         },
         "yolo_easyocr": {
           "plate": "KL01A0585",
           "raw_plate": "KL 01 AU585",
           "exact_match": true,
           "confidence": 0.66,
-          "latency_ms": 363.5,
+          "latency_ms": 228.0,
           "is_valid_format": true,
           "vehicle_type": "motorcycle"
         }
@@ -271,22 +200,13 @@
       "expected": "KL8S0914",
       "vehicle_type": "car",
       "predictions": {
-        "indian_anpr": {
-          "plate": "6",
-          "raw_plate": "6",
+        "hybrid_anpr": {
+          "plate": "KA18S0914",
+          "raw_plate": "KA18S0914",
           "exact_match": false,
-          "confidence": 0.39,
-          "latency_ms": 1481.7,
-          "is_valid_format": false,
-          "vehicle_type": "car"
-        },
-        "fast_alpr": {
-          "plate": "KA18S091",
-          "raw_plate": "KA18S091",
-          "exact_match": false,
-          "confidence": 0.81,
-          "latency_ms": 88.2,
-          "is_valid_format": false,
+          "confidence": 0.9,
+          "latency_ms": 1172.8,
+          "is_valid_format": true,
           "vehicle_type": "car"
         },
         "yolo_easyocr": {
@@ -294,7 +214,7 @@
           "raw_plate": "KA8 50914",
           "exact_match": false,
           "confidence": 0.73,
-          "latency_ms": 1061.6,
+          "latency_ms": 847.4,
           "is_valid_format": true,
           "vehicle_type": "car"
         }
@@ -305,30 +225,21 @@
       "expected": "BR01CJ6440",
       "vehicle_type": "car",
       "predictions": {
-        "indian_anpr": {
-          "plate": "BR01CJ6210",
-          "raw_plate": "BROTCJ62L0",
-          "exact_match": false,
-          "confidence": 0.53,
-          "latency_ms": 2811.0,
+        "hybrid_anpr": {
+          "plate": "BR01CJ6440",
+          "raw_plate": "BR01CJ6440",
+          "exact_match": true,
+          "confidence": 0.92,
+          "latency_ms": 3360.7,
           "is_valid_format": true,
-          "vehicle_type": "car"
-        },
-        "fast_alpr": {
-          "plate": "BR01CJ640",
-          "raw_plate": "BR01CJ640",
-          "exact_match": false,
-          "confidence": 0.79,
-          "latency_ms": 112.1,
-          "is_valid_format": false,
-          "vehicle_type": "car"
+          "vehicle_type": "motorcycle"
         },
         "yolo_easyocr": {
           "plate": "BR01C1644",
           "raw_plate": "BROTC JGLL",
           "exact_match": false,
           "confidence": 0.66,
-          "latency_ms": 1096.6,
+          "latency_ms": 862.4,
           "is_valid_format": true,
           "vehicle_type": "motorcycle"
         }
@@ -339,22 +250,13 @@
       "expected": "PB8M5077",
       "vehicle_type": "car",
       "predictions": {
-        "indian_anpr": {
-          "plate": "TN20BM5077",
-          "raw_plate": "TNZ0BM5077",
+        "hybrid_anpr": {
+          "plate": "TN28BM5077",
+          "raw_plate": "TN28BM5077",
           "exact_match": false,
-          "confidence": 0.83,
-          "latency_ms": 2381.7,
+          "confidence": 0.93,
+          "latency_ms": 1134.5,
           "is_valid_format": true,
-          "vehicle_type": "car"
-        },
-        "fast_alpr": {
-          "plate": "DN28BM507",
-          "raw_plate": "TN2BBM507",
-          "exact_match": false,
-          "confidence": 0.83,
-          "latency_ms": 121.9,
-          "is_valid_format": false,
           "vehicle_type": "car"
         },
         "yolo_easyocr": {
@@ -362,7 +264,7 @@
           "raw_plate": "",
           "exact_match": false,
           "confidence": 0.0,
-          "latency_ms": 1899.4,
+          "latency_ms": 1480.2,
           "is_valid_format": false,
           "vehicle_type": "car"
         }
@@ -373,22 +275,13 @@
       "expected": "MH43CC1745",
       "vehicle_type": "motorcycle",
       "predictions": {
-        "indian_anpr": {
-          "plate": "MHAJCC1745",
-          "raw_plate": "MHAJCC1745",
-          "exact_match": false,
-          "confidence": 0.94,
-          "latency_ms": 1323.2,
-          "is_valid_format": false,
-          "vehicle_type": "car"
-        },
-        "fast_alpr": {
-          "plate": "MH43CC174",
-          "raw_plate": "MH43CC174",
-          "exact_match": false,
-          "confidence": 0.94,
-          "latency_ms": 95.4,
-          "is_valid_format": false,
+        "hybrid_anpr": {
+          "plate": "MH43CC1745",
+          "raw_plate": "MH43CC1745",
+          "exact_match": true,
+          "confidence": 0.92,
+          "latency_ms": 1166.5,
+          "is_valid_format": true,
           "vehicle_type": "car"
         },
         "yolo_easyocr": {
@@ -396,7 +289,7 @@
           "raw_plate": "",
           "exact_match": false,
           "confidence": 0.0,
-          "latency_ms": 1171.5,
+          "latency_ms": 1058.9,
           "is_valid_format": false,
           "vehicle_type": "car"
         }
@@ -407,21 +300,12 @@
       "expected": "TS13UC9477",
       "vehicle_type": "car",
       "predictions": {
-        "indian_anpr": {
-          "plate": "SK20C91270",
-          "raw_plate": "SI2UC9L270",
-          "exact_match": false,
-          "confidence": 0.55,
-          "latency_ms": 1793.1,
-          "is_valid_format": true,
-          "vehicle_type": "car"
-        },
-        "fast_alpr": {
+        "hybrid_anpr": {
           "plate": "TS13UC9477",
           "raw_plate": "TS13UC9477",
           "exact_match": true,
-          "confidence": 0.9,
-          "latency_ms": 88.3,
+          "confidence": 0.98,
+          "latency_ms": 1102.3,
           "is_valid_format": true,
           "vehicle_type": "car"
         },
@@ -430,7 +314,7 @@
           "raw_plate": "TS13UC9L77",
           "exact_match": true,
           "confidence": 0.76,
-          "latency_ms": 1348.3,
+          "latency_ms": 1124.0,
           "is_valid_format": true,
           "vehicle_type": "car"
         }
@@ -441,21 +325,12 @@
       "expected": "RJ14UJ9039",
       "vehicle_type": "car",
       "predictions": {
-        "indian_anpr": {
-          "plate": "RJ11UJ9031",
-          "raw_plate": "RJILUJ903I",
-          "exact_match": false,
-          "confidence": 0.76,
-          "latency_ms": 1316.0,
-          "is_valid_format": true,
-          "vehicle_type": "car"
-        },
-        "fast_alpr": {
+        "hybrid_anpr": {
           "plate": "RJ14UJ9039",
           "raw_plate": "RJ14UJ9039",
           "exact_match": true,
           "confidence": 0.98,
-          "latency_ms": 92.3,
+          "latency_ms": 1129.4,
           "is_valid_format": true,
           "vehicle_type": "car"
         },
@@ -464,7 +339,7 @@
           "raw_plate": "RJ1LUJ9039",
           "exact_match": true,
           "confidence": 0.79,
-          "latency_ms": 350.6,
+          "latency_ms": 312.4,
           "is_valid_format": true,
           "vehicle_type": "car"
         }
@@ -475,21 +350,12 @@
       "expected": "GJ08OG9292",
       "vehicle_type": "car",
       "predictions": {
-        "indian_anpr": {
-          "plate": "GJ08OG9292",
-          "raw_plate": "6J08069292",
-          "exact_match": true,
-          "confidence": 0.84,
-          "latency_ms": 1875.0,
-          "is_valid_format": true,
-          "vehicle_type": "car"
-        },
-        "fast_alpr": {
+        "hybrid_anpr": {
           "plate": "GJ08DG9292",
           "raw_plate": "GJ08DG9292",
           "exact_match": false,
-          "confidence": 0.95,
-          "latency_ms": 104.4,
+          "confidence": 0.97,
+          "latency_ms": 1133.2,
           "is_valid_format": true,
           "vehicle_type": "car"
         },
@@ -498,7 +364,7 @@
           "raw_plate": "",
           "exact_match": false,
           "confidence": 0.0,
-          "latency_ms": 1441.0,
+          "latency_ms": 1117.3,
           "is_valid_format": false,
           "vehicle_type": "car"
         }
@@ -509,30 +375,21 @@
       "expected": "KA01AB1234",
       "vehicle_type": "car",
       "predictions": {
-        "indian_anpr": {
-          "plate": "KA08IZ3",
-          "raw_plate": "KAQBI23",
-          "exact_match": false,
-          "confidence": 0.43,
-          "latency_ms": 1492.4,
+        "hybrid_anpr": {
+          "plate": "KA01AB1234",
+          "raw_plate": "KA01AB1234",
+          "exact_match": true,
+          "confidence": 0.96,
+          "latency_ms": 1149.6,
           "is_valid_format": true,
-          "vehicle_type": "car"
-        },
-        "fast_alpr": {
-          "plate": "KA01AB123",
-          "raw_plate": "KA01AB123",
-          "exact_match": false,
-          "confidence": 0.93,
-          "latency_ms": 95.2,
-          "is_valid_format": false,
-          "vehicle_type": "car"
+          "vehicle_type": "truck"
         },
         "yolo_easyocr": {
           "plate": "KA01AB1234",
           "raw_plate": "KA O1AB 1234",
           "exact_match": true,
           "confidence": 0.84,
-          "latency_ms": 321.7,
+          "latency_ms": 221.1,
           "is_valid_format": true,
           "vehicle_type": "truck"
         }
@@ -543,21 +400,12 @@
       "expected": "DL7CQ1939",
       "vehicle_type": "motorcycle",
       "predictions": {
-        "indian_anpr": {
-          "plate": "7C01939",
-          "raw_plate": "7CQ1939",
-          "exact_match": false,
-          "confidence": 0.8,
-          "latency_ms": 3068.8,
-          "is_valid_format": false,
-          "vehicle_type": "car"
-        },
-        "fast_alpr": {
+        "hybrid_anpr": {
           "plate": "DL7CQ1939",
           "raw_plate": "DL7CQ1939",
           "exact_match": true,
-          "confidence": 0.99,
-          "latency_ms": 86.4,
+          "confidence": 0.91,
+          "latency_ms": 1100.3,
           "is_valid_format": true,
           "vehicle_type": "car"
         },
@@ -566,7 +414,7 @@
           "raw_plate": "DL 7CO 1939",
           "exact_match": false,
           "confidence": 0.6,
-          "latency_ms": 391.1,
+          "latency_ms": 315.3,
           "is_valid_format": true,
           "vehicle_type": "car"
         }
@@ -577,30 +425,21 @@
       "expected": "AP03AJ0367",
       "vehicle_type": "car",
       "predictions": {
-        "indian_anpr": {
-          "plate": "AP034J0367",
-          "raw_plate": "AP034J03671",
+        "hybrid_anpr": {
+          "plate": "AP03J0367",
+          "raw_plate": "AP03J0367",
           "exact_match": false,
-          "confidence": 0.88,
-          "latency_ms": 2364.8,
+          "confidence": 0.95,
+          "latency_ms": 3288.3,
           "is_valid_format": true,
-          "vehicle_type": "car"
-        },
-        "fast_alpr": {
-          "plate": "AP03AJ036",
-          "raw_plate": "AP03AJ036",
-          "exact_match": false,
-          "confidence": 0.92,
-          "latency_ms": 122.1,
-          "is_valid_format": false,
-          "vehicle_type": "car"
+          "vehicle_type": "motorcycle"
         },
         "yolo_easyocr": {
           "plate": "AP03AJ0367",
           "raw_plate": "AP03 4J0367",
           "exact_match": true,
           "confidence": 0.84,
-          "latency_ms": 414.4,
+          "latency_ms": 321.9,
           "is_valid_format": true,
           "vehicle_type": "motorcycle"
         }

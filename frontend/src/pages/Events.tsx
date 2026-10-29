@@ -34,7 +34,15 @@ export default function Events() {
     try {
       setLoading(true);
       const res = await api.get('/events?limit=100');
-      setEvents(res.data || []);
+      const raw = res.data;
+      const eventsList: any[] = Array.isArray(raw)
+        ? raw
+        : (Array.isArray(raw?.items)
+            ? raw.items
+            : (Array.isArray(raw?.events)
+                ? raw.events
+                : (Array.isArray(raw?.data) ? raw.data : [])));
+      setEvents(eventsList);
       setError(null);
     } catch (err: any) {
       if (err.response?.status === 401 || err.response?.status === 403) {

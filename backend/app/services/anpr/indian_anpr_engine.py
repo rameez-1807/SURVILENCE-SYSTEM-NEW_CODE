@@ -84,7 +84,8 @@ class IndianANPREngine(BaseANPREngine):
         """Loads and caches the Indian plate detection model."""
         if cls._detector_model is None:
             from ultralytics import YOLO
-            backend_dir = Path(__file__).resolve().parents[3]
+            backend_dir = Path(__file__).resolve().parents[2]
+            root_dir = Path(__file__).resolve().parents[3]
             model_path = None
             for cand in [
                 backend_dir / "best.pt",
@@ -108,7 +109,8 @@ class IndianANPREngine(BaseANPREngine):
         """Loads YOLO model for vehicle classification (car, bike, truck, bus)."""
         if cls._vehicle_classifier is None:
             from ultralytics import YOLO
-            backend_dir = Path(__file__).resolve().parents[3]
+            backend_dir = Path(__file__).resolve().parents[2]
+            root_dir = Path(__file__).resolve().parents[3]
             model_path = backend_dir / "yolov8n.pt"
             if not model_path.exists():
                 model_path = backend_dir / "best.pt"

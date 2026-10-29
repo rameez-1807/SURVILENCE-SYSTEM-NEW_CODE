@@ -80,7 +80,7 @@ def run_anpr_benchmark(
     if not items:
         raise ValueError(f"No test items found in ground_truth.csv ({csv_file})")
 
-    engine_ids = engines_to_test or ["indian_anpr", "fast_alpr", "yolo_easyocr"]
+    engine_ids = engines_to_test or ["yolo_easyocr", "hybrid_anpr", "fast_alpr", "indian_anpr"]
     engines = {eid: anpr_manager.get_engine(eid) for eid in engine_ids}
 
     # Tracking metrics per engine

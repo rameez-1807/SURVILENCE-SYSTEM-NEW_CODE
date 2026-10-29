@@ -45,6 +45,11 @@ npm run build
 info "Restarting backend service..."
 sudo systemctl restart surveillance-backend
 
+if systemctl is-active --quiet awiros-worker 2>/dev/null; then
+    info "Restarting Awiros ANPR worker service..."
+    sudo systemctl restart awiros-worker 2>/dev/null || true
+fi
+
 info "Reloading Nginx..."
 sudo systemctl reload nginx
 

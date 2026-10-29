@@ -15,6 +15,7 @@ from app.services.anpr.base import BaseANPREngine
 from app.services.anpr.indian_anpr_engine import IndianANPREngine
 from app.services.anpr.fast_alpr_engine import FastALPREngine
 from app.services.anpr.yolo_easyocr_engine import YOLOEasyOCREngine
+from app.services.anpr.hybrid_anpr_engine import HybridANPREngine
 
 logger = logging.getLogger(__name__)
 
@@ -22,19 +23,20 @@ logger = logging.getLogger(__name__)
 class ANPREngineManager:
     """Singleton manager that coordinates available ANPR engines."""
 
-    DEFAULT_ENGINE = "indian_anpr"
+    DEFAULT_ENGINE = "yolo_easyocr"
 
     def __init__(self):
         self._engines: Dict[str, BaseANPREngine] = {
+            "yolo_easyocr": YOLOEasyOCREngine(),
+            "hybrid_anpr": HybridANPREngine(),
             "indian_anpr": IndianANPREngine(),
             "fast_alpr": FastALPREngine(),
-            "yolo_easyocr": YOLOEasyOCREngine(),
         }
 
     def get_engine(self, engine_id: Optional[str] = None) -> BaseANPREngine:
         """
         Retrieves requested engine by ID.
-        Defaults to 'indian_anpr' if None or unrecognised.
+        Defaults to 'yolo_easyocr' if None or unrecognised.
         Falls back to 'yolo_easyocr' if chosen engine encounters initialization failure.
         """
         target_id = (engine_id or self.DEFAULT_ENGINE).strip().lower()

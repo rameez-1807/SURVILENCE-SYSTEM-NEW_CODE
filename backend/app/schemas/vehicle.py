@@ -49,7 +49,7 @@ class ANPRScanRequest(BaseModel):
     camera_name: Optional[str] = Field(default="Live ANPR Camera", description="Camera source name")
     location_spot: Optional[str] = Field(default="Apartment Main Gate", description="Location spot (e.g., Visitor Parking, Apartment Gate)")
     is_live_stream: Optional[bool] = Field(default=False, description="Whether request is from continuous live camera loop")
-    engine: Optional[str] = Field(default="indian_anpr", description="ANPR recognition engine ('indian_anpr', 'fast_alpr', or 'yolo_easyocr')")
+    engine: Optional[str] = Field(default="yolo_easyocr", description="ANPR recognition engine ('yolo_easyocr', 'hybrid_anpr', 'fast_alpr', or 'indian_anpr')")
 
 
 class ANPRScanResponse(BaseModel):

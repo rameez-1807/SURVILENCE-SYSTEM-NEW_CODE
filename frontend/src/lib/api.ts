@@ -4,8 +4,13 @@ export const getBackendHost = (): string => {
   if (import.meta.env.VITE_API_URL) {
     return import.meta.env.VITE_API_URL.replace(/\/api\/v1\/?$/, '').replace(/\/+$/, '');
   }
-  if (typeof window !== 'undefined' && window.location.origin) {
-    return window.location.origin;
+  if (typeof window !== 'undefined') {
+    if (window.location.port === '5173') {
+      return 'http://localhost:8000';
+    }
+    if (window.location.origin) {
+      return window.location.origin;
+    }
   }
   return 'http://localhost:8000';
 };
@@ -15,29 +20,48 @@ export const getApiBaseUrl = (): string => {
     const base = import.meta.env.VITE_API_URL.replace(/\/+$/, '');
     return base.endsWith('/api/v1') ? base : `${base}/api/v1`;
   }
-  if (typeof window !== 'undefined' && window.location.origin) {
-    return `${window.location.origin}/api/v1`;
+  if (typeof window !== 'undefined') {
+    if (window.location.port === '5173') {
+      return 'http://localhost:8000/api/v1';
+    }
+    if (window.location.origin) {
+      return `${window.location.origin}/api/v1`;
+    }
   }
   return 'http://localhost:8000/api/v1';
 };
 
 export const getWsUrl = (path: string = '/api/v1/ws'): string => {
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  let baseWs = '';
+
   if (import.meta.env.VITE_WS_URL) {
-    const baseWs = import.meta.env.VITE_WS_URL.replace(/\/+$/, '');
-    return `${baseWs}${cleanPath}`;
-  }
-  if (import.meta.env.VITE_API_URL) {
+    baseWs = import.meta.env.VITE_WS_URL.replace(/\/+$/, '');
+  } else if (import.meta.env.VITE_API_URL) {
     const isHttps = import.meta.env.VITE_API_URL.startsWith('https');
     const wsProto = isHttps ? 'wss' : 'ws';
-    const host = import.meta.env.VITE_API_URL.replace(/^https?:\/\//, '').replace(/\/api\/v1\/?$/, '').replace(/\/+$/, '');
-    return `${wsProto}://${host}${cleanPath}`;
+    const host = import.meta.env.VITE_API_URL
+      .replace(/^https?:\/\//, '')
+      .replace(/\/api\/v1\/?$/, '')
+      .replace(/\/+$/, '');
+    baseWs = `${wsProto}://${host}`;
+  } else if (typeof window !== 'undefined') {
+    if (window.location.port === '5173') {
+      baseWs = 'ws://localhost:8000';
+    } else if (window.location.host) {
+      const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      baseWs = `${proto}://${window.location.host}`;
+    }
   }
-  if (typeof window !== 'undefined' && window.location.host) {
-    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    return `${proto}://${window.location.host}${cleanPath}`;
+
+  if (!baseWs) {
+    baseWs = 'ws://localhost:8000';
   }
-  return `ws://localhost:8000${cleanPath}`;
+
+  // Strip trailing '/api/v1/ws' or '/api/v1' from baseWs to prevent path duplication
+  baseWs = baseWs.replace(/\/api\/v1(\/ws)?\/?$/, '');
+
+  return `${baseWs}${cleanPath}`;
 };
 
 export const api = axios.create({

@@ -76,3 +76,8 @@ backend/*.ts
 !references/indian-anpr/best.pt
 
 runs/
+
+# Awiros ANPR Worker artifacts
+backend/app/services/anpr/awiros_worker/models/
+backend/app/services/anpr/awiros_worker/venv/
+*.safetensors

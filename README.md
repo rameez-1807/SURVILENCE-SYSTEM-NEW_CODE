@@ -10,18 +10,18 @@
   <h1>🛡️ <strong>MULTI CAMERA AI SURVEILLANCE & REAL TIME ANALYTICS PLATFORM</strong></h1>
 
   <p>
-    <strong>Enterprise Real-Time Video Analytics • YOLOv9 / YOLOv8 Multi-Object Detection • ByteTrack Multi-Object Tracking • ANPR Plate Scanner • Groq Vision AI • Human Review Queue • Biometric Face Attendance • Full Light & Dark Theme</strong>
+    <strong>Enterprise Real-Time Video Analytics • RF-DETR Nano Vision Transformer • YOLOv9 / YOLO-World / YOLOE Detection • ByteTrack Multi-Object Tracking • Quad-Engine Hybrid ANPR Plate Scanner • Groq Vision AI • CI/CD Auto-Deploy to AWS EC2 • Full Light & Dark Theme</strong>
   </p>
 
   <p>
     <a href="https://github.com/rameez-1807/SURVILENCE-SYSTEM-NEW_CODE.git"><img src="https://img.shields.io/badge/GitHub-Repository-181717?style=for-the-badge&logo=github&logoColor=white" alt="GitHub Repo" /></a>
+    <a href="https://github.com/rameez-1807/SURVILENCE-SYSTEM-NEW_CODE/actions"><img src="https://img.shields.io/badge/CI%2FCD-AWS_EC2_Pipeline-232F3E?style=for-the-badge&logo=githubactions&logoColor=white" alt="CI/CD EC2" /></a>
     <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.115+-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI" /></a>
     <a href="https://react.dev/"><img src="https://img.shields.io/badge/React_19-20232A?style=for-the-badge&logo=react&logoColor=61DAFB" alt="React 19" /></a>
     <a href="https://vitejs.dev/"><img src="https://img.shields.io/badge/Vite_8-646CFF?style=for-the-badge&logo=vite&logoColor=white" alt="Vite 8" /></a>
     <a href="https://tailwindcss.com/"><img src="https://img.shields.io/badge/Tailwind_CSS_v4-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white" alt="Tailwind CSS v4" /></a>
-    <a href="https://github.com/WongKinYiu/yolov9"><img src="https://img.shields.io/badge/YOLOv9--C-Official_PyTorch-00599C?style=for-the-badge&logo=pytorch&logoColor=white" alt="YOLOv9" /></a>
+    <a href="https://github.com/roboflow/rf-detr"><img src="https://img.shields.io/badge/RF--DETR_Nano-Vision_Transformer-7C3AED?style=for-the-badge&logo=pytorch&logoColor=white" alt="RF-DETR Nano" /></a>
     <a href="https://groq.com/"><img src="https://img.shields.io/badge/Groq_Vision_AI-F55036?style=for-the-badge&logo=groq&logoColor=white" alt="Groq Vision AI" /></a>
-    <a href="https://supabase.com/"><img src="https://img.shields.io/badge/Supabase_/_PostgreSQL-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white" alt="Supabase / PostgreSQL" /></a>
   </p>
 
   <p>
@@ -107,18 +107,25 @@ flowchart TD
 
 ## ✨ Key Features & Modules
 
-### 1. 🎯 Real-Time Object Detection & ByteTrack Tracking (`/objects`)
-- **Singleton Model Lifecycle**: Weights loaded once during application startup for maximum inference throughput.
+### 1. 🎯 Real-Time Multi-Model Object Detection & Tracking (`/objects`)
+- **Premier Model: RF-DETR Nano (Vision Transformer)**: DINOv2 vision transformer backbone with ByteTrack tracking, supporting 80 COCO classes with sub-second CPU latency (~440ms) and GPU acceleration.
+- **Multiple AI Detection Engines**: Choose effortlessly from dedicated cards in the UI:
+  - 🟣 **RF-DETR Nano (Transformer)**: Premier vision transformer with deep visual features and ByteTrack tracking.
+  - 🌐 **Browser Detection (Free / Zero-Lag)**: Client-side TensorFlow COCO-SSD running directly in your browser without server bandwidth.
+  - 🤖 **YOLOE Auto Detect (Prompt-Free)**: Zero-shot prompt-free everyday object and human detection.
+  - ⚡ **YOLOv9-C (Official + ByteTrack)**: PGI architecture with multi-target tracking.
+  - 🔍 **YOLO-World (Open-Vocab)**: Dynamic vocabulary detection with custom prompt inputs.
+  - ⚖️ **YOLO11m (Standard COCO)**: Balanced standard object detector.
 - **Hardware Agnostic**: Automatic GPU detection (`CUDA`) with seamless CPU zero-copy fallback (`torch.no_grad()`).
-- **Temporal Stability**: ByteTrack algorithm guarantees stable tracking IDs even during occlusions.
-- **Debounced Alarms**: Configurable per-track cooldown timers prevent duplicate notifications.
-- **Annotated Evidence**: Saves timestamped, bounding-boxed frames to `/evidence/snapshots/`.
+- **Front & Back Camera Toggle**: Dual camera selector allowing seamless surveillance on laptops, webcams, smartphones, and tablets.
+- **Temporal Stability & Debouncing**: ByteTrack multi-object tracking guarantees persistent IDs (`track_id`) across occlusions with cooldown debouncers to eliminate duplicate database events.
 
-### 2. 🚗 Tri-Engine Indian ANPR License Plate Scanner (`/vehicles`)
-- **Tri-Engine Modular Architecture**: Select in real-time between three specialized recognition engines:
-  - ⚡ **FastALPR (ONNX Runtime)**: Ultra high-speed (~100 ms) YOLOv9-T detector + CCT Transformer OCR optimized for real-time video streaming without latency.
+### 2. 🚗 Quad-Engine Indian ANPR License Plate Scanner (`/vehicles`)
+- **Quad-Engine Modular Architecture**: Select in real-time between four high-performance recognition engines:
+  - 🛡️ **YOLO + EasyOCR (Default Engine)**: Original production baseline using YOLO plate detector with EasyOCR contour recognition.
+  - ⚡ **Hybrid ANPR (Awiros Micro-Worker + Fallback)**: High-precision OCR micro-worker architecture (`awiros_worker`), dual-line plate re-stacking for Indian motorcycles & commercial vehicles, Indian RTO regex heuristics, and automatic seamless fallback to EasyOCR.
+  - ⚡ **FastALPR (ONNX Runtime)**: Ultra high-speed (~100 ms) YOLOv9-T detector + CCT Transformer OCR optimized for high-FPS live video feeds.
   - 🇮🇳 **Indian ANPR Engine**: Dedicated YOLO plate detector (`references/indian-anpr/best.pt`) with multi-pass deskew OCR, two-line motorcycle & HSRP analysis, and Indian RTO state validation.
-  - 🛡️ **YOLO + EasyOCR (Backup Engine)**: Original baseline pipeline using multi-class vehicle detection (`backend/best.pt`) with EasyOCR.
 - **Side-by-Side Accuracy Benchmark**: Integrated benchmarking suite running on identical labelled Indian vehicle plates across 12 Indian states (cars & motorcycles). View full-plate exact accuracy and latency metrics directly in the UI.
 - **Duplicate Prevention & Best Snapshot**: Automatically prevents database spam within a 20-second session window while automatically upgrading saved records if a higher-confidence frame is captured.
 - **Voice Announcements**: Built-in speech synthesis toggle (`🔊 Voice Announcement ON / OFF`) announcing detected license plates.
@@ -456,6 +463,49 @@ bash deploy/ec2-update.sh
   1. Navigate to `chrome://flags/#unsafely-treat-insecure-origin-as-secure`
   2. Add `http://<YOUR_EC2_PUBLIC_IP>`
   3. Select **Enabled** and click **Relaunch**.
+
+---
+
+### 🔄 Automated CI/CD Pipeline to AWS EC2 (GitHub Actions)
+
+This repository includes a production-grade automated CI/CD pipeline configured at `.github/workflows/deploy.yml`. Every code push to `main` (or `master`) automatically triggers test verification, frontend build validation, and zero-downtime deployment over SSH directly to your AWS EC2 instance.
+
+```mermaid
+flowchart LR
+    Dev["Developer Push (git push)"] --> GH["GitHub Repository (main branch)"]
+    subgraph GitHub_Actions["GitHub Actions Runner"]
+        GH --> Lint["Python Syntax & Flake8 Checks"]
+        Lint --> Build["Node.js 20 & Vite Frontend Build"]
+    end
+    subgraph AWS_EC2["AWS EC2 Production Server"]
+        Build --> SSH["SSH Remote Deploy (appleboy/ssh-action)"]
+        SSH --> Pull["git pull latest code"]
+        Pull --> Deps["Update Pip & NPM Packages"]
+        Deps --> Rebuild["npm run build"]
+        Rebuild --> Restart["systemctl restart surveillance-backend & awiros-worker"]
+        Restart --> Nginx["systemctl reload nginx"]
+        Nginx --> Health["HTTP 200 Health Verification"]
+    end
+```
+
+#### Setting Up GitHub Secrets for Auto-Deployment
+
+To connect your GitHub repository with your EC2 server, configure the following secrets in GitHub:
+1. Navigate to your GitHub Repository: **Settings** → **Secrets and variables** → **Actions**.
+2. Click **New repository secret** and add the following secrets:
+
+| Secret Name | Value Description | Example |
+| :--- | :--- | :--- |
+| `EC2_HOST` | The Public IPv4 address or Public DNS of your AWS EC2 instance. | `3.109.123.45` or `ec2-3-109-123-45.compute-1.amazonaws.com` |
+| `EC2_USERNAME` | The SSH default user for your EC2 instance. | `ec2-user` (Amazon Linux 2023) or `ubuntu` |
+| `EC2_SSH_KEY` | The entire private key file (`.pem`) used to connect to your EC2 instance. Include `-----BEGIN RSA PRIVATE KEY-----` and `-----END RSA PRIVATE KEY-----`. | `-----BEGIN OPENSSH PRIVATE KEY----- ...` |
+| `EC2_PORT` *(Optional)* | SSH port (defaults to 22 if omitted). | `22` |
+
+#### How It Works:
+* **Automatic on Push**: Every time you run `git push origin main` or `git push personal main`, GitHub Actions tests your backend, compiles the frontend bundle, connects to your EC2 server over SSH, executes `deploy/ec2-update.sh`, and validates the `/health` endpoint.
+* **Manual Trigger**: You can also trigger a deployment anytime from the **Actions** tab in GitHub by selecting **CI/CD Pipeline & EC2 Auto-Deploy** and clicking **Run workflow**.
+
+---
 
 ---
 
