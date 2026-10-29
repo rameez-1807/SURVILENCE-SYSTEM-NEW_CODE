@@ -26,7 +26,7 @@ echo ""
 # Pull latest code
 cd "$PROJECT_DIR"
 info "Pulling latest code from GitHub..."
-git pull origin main
+git pull origin main 2>/dev/null || git pull personal main 2>/dev/null || git pull
 
 # Update backend
 cd "$BACKEND_DIR"

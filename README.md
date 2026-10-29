@@ -462,7 +462,7 @@ bash deploy/ec2-update.sh
 ### 🟣 Deploy Backend to Render
 
 1. Log in to [Render.com](https://render.com) and click **New +** → **Web Service**.
-2. Connect your GitHub repository: `https://github.com/NighwanTech/AI_SURVILENCE-SYSTEM.git`.
+2. Connect your GitHub repository: `https://github.com/rameez-1807/SURVILENCE-SYSTEM-NEW_CODE.git`.
 3. Configure settings:
    - **Root Directory**: `backend`
    - **Environment**: `Python 3`
@@ -538,11 +538,15 @@ SURVILENCE-SYSTEM-NEW_CODE/
 
 ---
 
-## 🔒 Security & Privacy
+## 🔒 Security & Privacy (Audited & Hardened)
 
-* **Zero Committed Secrets**: `.env` files are strictly excluded via `.gitignore`.
-* **Tenant Isolation**: Row-Level Security (RLS) and multi-tenant scoped DB queries prevent cross-tenant data leaks.
-* **On-Demand Multimodal Calls**: Groq Vision is strictly triggered on confirmed detections to preserve API quotas and ensure low latency.
+* **Cryptographic Authentication**: JWT access tokens validated with strict algorithms and expiry. Insecure demo bypass tokens are completely rejected in production.
+* **MongoDB Multi-Tenant Scoping**: All MongoDB Atlas collections (`events`, `vehicles`, `employees`, `attendance_records`) enforce strict `tenant_id` scoping and compound indexes for complete tenant data isolation.
+* **NoSQL Injection Defense**: Dynamic queries are sanitized with recursive key and operator stripping (`$where`, `$gt`, `$ne`, etc.).
+* **Zero Committed Secrets**: `.env` and sensitive credentials are encrypted / strictly excluded via `.gitignore`.
+* **Hardened CORS Policy**: Strict origin whitelist for trusted local and cloud instances (EC2 HTTPS reverse proxy) with disabled credentials on wildcards.
+* **Path Traversal Protection**: Evidence media endpoints utilize `Path.resolve()` and `is_relative_to()` boundary validation.
+* **Dual Camera Switching**: WebRTC camera support with front/back camera facing toggles for smartphone & tablet mobile surveillance.
 
 ---
 
