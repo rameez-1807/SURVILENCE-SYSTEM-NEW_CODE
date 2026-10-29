@@ -113,26 +113,39 @@ async def init_mongo_indexes() -> None:
     try:
         db = get_async_db()
 
-        # 1. Events collection indexes
+        # 1. Events collection indexes (with tenant isolation)
+        await db.events.create_index([("tenant_id", 1), ("observed_at", -1)])
+        await db.events.create_index([("tenant_id", 1), ("event_type", 1)])
+        await db.events.create_index([("tenant_id", 1), ("camera_id", 1)])
         await db.events.create_index([("observed_at", -1)])
         await db.events.create_index([("event_type", 1)])
         await db.events.create_index([("track_id", 1)])
         await db.events.create_index([("dedupe_key", 1)])
         await db.events.create_index([("camera_id", 1)])
 
-        # 2. Vehicles collection indexes
+        # 2. Vehicles collection indexes (with tenant isolation)
+        await db.vehicles.create_index([("tenant_id", 1), ("timestamp", -1)])
+        await db.vehicles.create_index([("tenant_id", 1), ("number_plate", 1)])
         await db.vehicles.create_index([("timestamp", -1)])
-        await db.vehicles.create_index([("plate_number", 1)])
+        await db.vehicles.create_index([("number_plate", 1)])
 
-        # 3. Employees collection indexes
+        # 3. Employees collection indexes (with tenant isolation)
+        await db.employees.create_index([("tenant_id", 1), ("employee_id", 1)])
+        await db.employees.create_index([("employee_id", 1)])
         await db.employees.create_index([("code", 1)])
         await db.employees.create_index([("email", 1)])
 
-        # 4. Attendance records collection indexes
+        # 4. Attendance records collection indexes (with tenant isolation)
+        await db.attendance_records.create_index([("tenant_id", 1), ("date", -1)])
+        await db.attendance_records.create_index([("tenant_id", 1), ("employee_uuid", 1)])
         await db.attendance_records.create_index([("date", -1)])
         await db.attendance_records.create_index([("employee_uuid", 1)])
 
-        # 5. Cameras collection indexes
+        # 5. Recognition history collection indexes (with tenant isolation)
+        await db.recognition_history.create_index([("tenant_id", 1), ("timestamp", -1)])
+
+        # 6. Cameras collection indexes
+        await db.cameras.create_index([("tenant_id", 1), ("id", 1)])
         await db.cameras.create_index([("id", 1)])
 
         logger.info("[MongoDB] Atlas collections & indexes successfully verified.")
@@ -152,3 +165,25 @@ def close_mongo_connections() -> None:
         _sync_client = None
         _sync_db = None
     logger.info("[MongoDB] Connections closed.")
+
+
+def sanitize_mongo_query(query: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Sanitize a MongoDB query filter dict to prevent NoSQL operator injection.
+    Recursively strips keys containing '$' or '.' from user input dictionaries.
+    """
+    if not isinstance(query, dict):
+        return query
+    
+    clean: Dict[str, Any] = {}
+    for k, v in query.items():
+        if isinstance(k, str) and (k.startswith("$") or "." in k):
+            continue  # Disallow operator injection in top-level query dicts
+        if isinstance(v, dict):
+            safe_sub = {sk: sv for sk, sv in v.items() if isinstance(sk, str) and not sk.startswith("$")}
+            clean[k] = safe_sub
+        elif isinstance(v, list):
+            clean[k] = [sanitize_mongo_query(item) if isinstance(item, dict) else item for item in v]
+        else:
+            clean[k] = v
+    return clean

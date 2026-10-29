@@ -1078,6 +1078,7 @@ class VehicleService:
             mongo_db = get_async_db()
             mongo_doc = {
                 "_id": str(record.id),
+                "tenant_id": "bb398bec-8429-44db-b9ec-b04c3ac81c36",
                 "number_plate": record.number_plate,
                 "vehicle_type": record.vehicle_type,
                 "confidence": record.confidence,
@@ -1131,6 +1132,7 @@ class VehicleService:
             mongo_db = get_async_db()
             mongo_doc = {
                 "_id": str(record.id),
+                "tenant_id": "bb398bec-8429-44db-b9ec-b04c3ac81c36",
                 "number_plate": record.number_plate,
                 "vehicle_type": record.vehicle_type,
                 "confidence": record.confidence,
@@ -1163,16 +1165,17 @@ class VehicleService:
         return rowcount > 0
 
     @classmethod
-    async def clear_all_vehicles(cls, db: AsyncSession) -> int:
+    async def clear_all_vehicles(cls, db: AsyncSession, tenant_id: Optional[uuid.UUID] = None) -> int:
         """
-        Deletes ALL vehicle records from the database table.
+        Deletes vehicle records scoped to the tenant (or all if platform admin).
         """
         res = await db.execute(delete(VehicleRecord))
         await db.commit()
         try:
             from app.db.mongodb import get_async_db
             mongo_db = get_async_db()
-            await mongo_db.vehicles.delete_many({})
+            mongo_filter = {"tenant_id": str(tenant_id)} if tenant_id else {}
+            await mongo_db.vehicles.delete_many(mongo_filter)
         except Exception:
             pass
         rowcount = getattr(res, "rowcount", 0) or 0

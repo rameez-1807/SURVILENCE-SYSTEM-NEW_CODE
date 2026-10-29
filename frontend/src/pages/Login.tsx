@@ -40,9 +40,8 @@ export default function Login() {
       if (err.response?.status === 401) {
         setError('Invalid credentials. Check username & password.');
       } else {
-        // Fallback for offline / backend asleep demo mode
-        localStorage.setItem('token', 'demo-token-' + Date.now());
-        navigate('/dashboard', { replace: true });
+        const errorMsg = err.response?.data?.detail || err.message || 'Unable to connect to surveillance server. Please check backend status.';
+        setError(`Login failed: ${errorMsg}`);
       }
     } finally {
       setLoading(false);

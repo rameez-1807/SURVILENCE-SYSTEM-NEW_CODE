@@ -44,15 +44,19 @@ class ObjectDetectionRequest(BaseModel):
 async def list_events(
     skip: int = Query(0, ge=0),
     limit: int = Query(200, ge=1, le=1000),
+    x_tenant_id: TenantHeader = None,
     db: AsyncSession = Depends(get_db),
 ) -> List[EventResponse]:
-    """List events ordered by observation timestamp."""
+    """List events ordered by observation timestamp with optional tenant scoping."""
     import logging
     from app.models.event import Event
     from sqlalchemy import select
 
     try:
-        stmt = select(Event).order_by(Event.observed_at.desc()).offset(skip).limit(limit)
+        stmt = select(Event)
+        if x_tenant_id:
+            stmt = stmt.where(Event.tenant_id == x_tenant_id)
+        stmt = stmt.order_by(Event.observed_at.desc()).offset(skip).limit(limit)
         result = await db.execute(stmt)
         return list(result.scalars().all())
     except Exception as e:
@@ -183,6 +187,8 @@ async def create_object_detection_event(
             {"_id": str(db_obj.id)},
             {"$setOnInsert": {
                 "_id": str(db_obj.id),
+                "tenant_id": str(tenant.id),
+                "site_id": str(site.id),
                 "camera_id": str(camera.id),
                 "camera_name": req.camera_name or "Live Camera",
                 "event_type": event_type,
@@ -302,15 +308,37 @@ async def vision_scan_object(
 
 
 @router.delete("/clear-all", status_code=status.HTTP_200_OK)
-async def clear_all_events(db: AsyncSession = Depends(get_db)):
+async def clear_all_events(
+    current_user: CurrentUser,
+    x_tenant_id: TenantHeader = None,
+    db: AsyncSession = Depends(get_db),
+):
     """
-    Clear all saved object detection events from database.
+    Clear saved object detection events scoped to tenant.
+    Requires authentication.
     """
     from app.models.event import Event
     from sqlalchemy import delete
 
-    res = await db.execute(delete(Event))
+    user_tenant_id = get_tenant_id_context(current_user, x_tenant_id)
+    if user_tenant_id:
+        stmt = delete(Event).where(Event.tenant_id == user_tenant_id)
+    else:
+        is_admin = any(m.role == Role.PLATFORM_ADMIN for m in current_user.memberships)
+        if not is_admin:
+            raise HTTPException(status_code=403, detail="Permission denied to clear events globally")
+        stmt = delete(Event)
+
+    res = await db.execute(stmt)
     await db.commit()
+
+    try:
+        from app.db.mongodb import get_async_db
+        mongo_filter = {"tenant_id": str(user_tenant_id)} if user_tenant_id else {}
+        await get_async_db().events.delete_many(mongo_filter)
+    except Exception:
+        pass
+
     return {"status": "cleared", "deleted_count": res.rowcount}
 
 

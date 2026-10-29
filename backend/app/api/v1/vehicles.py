@@ -4,7 +4,7 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.session import get_db
+from app.api.deps import CurrentUser, get_db
 from app.schemas.vehicle import (
     VehicleCreate,
     VehicleOut,
@@ -155,6 +155,7 @@ async def scan_vehicle_plate(
 @router.post("", response_model=VehicleOut, status_code=status.HTTP_201_CREATED)
 async def create_vehicle_record(
     data: VehicleCreate,
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -164,7 +165,10 @@ async def create_vehicle_record(
 
 
 @router.delete("", status_code=status.HTTP_200_OK)
-async def clear_all_vehicles(db: AsyncSession = Depends(get_db)):
+async def clear_all_vehicles(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db)
+):
     """
     Delete ALL vehicle records from the database.
     """
@@ -175,6 +179,7 @@ async def clear_all_vehicles(db: AsyncSession = Depends(get_db)):
 @router.delete("/{vehicle_id}")
 async def delete_vehicle_record(
     vehicle_id: uuid.UUID,
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -195,7 +200,7 @@ async def get_watchlist():
 
 
 @router.post("/security/watchlist")
-async def set_watchlist_entry(entry: WatchlistEntry):
+async def set_watchlist_entry(entry: WatchlistEntry, current_user: CurrentUser):
     """
     Registers or updates a vehicle plate in the enterprise access control list.
     """
@@ -205,7 +210,7 @@ async def set_watchlist_entry(entry: WatchlistEntry):
 
 
 @router.delete("/security/watchlist/{number_plate}")
-async def remove_watchlist_entry(number_plate: str):
+async def remove_watchlist_entry(number_plate: str, current_user: CurrentUser):
     """
     Removes a vehicle plate from the security watchlist.
     """

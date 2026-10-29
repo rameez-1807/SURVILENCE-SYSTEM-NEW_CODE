@@ -135,8 +135,10 @@ async def _persist_confirmed_track(item: dict, camera_name: str = "Webcam Live",
         m_id = str(item.get("model", model_name))
         time_bucket = int(time.time() // 30)
         dedupe_key = f"{camera_name}_{tid}_{obj_name}_{time_bucket}"
+        tid_val = str(item.get("tenant_id") or "bb398bec-8429-44db-b9ec-b04c3ac81c36")
         document = {
             "_id": str(uuid.uuid5(uuid.NAMESPACE_URL, dedupe_key)),
+            "tenant_id": tid_val,
             "camera_name": camera_name,
             "event_type": f"{obj_name}_detected",
             "object_name": raw_name,

@@ -5,6 +5,8 @@ Manages all application settings using Pydantic Settings.
 Environment variables are loaded from .env file.
 """
 
+from typing import Any
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,6 +24,19 @@ class Settings(BaseSettings):
     APP_NAME: str = "Multi Camera AI Surveillance & Real Time Analytics Platform"
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = False
+    ENABLE_DEMO_AUTH: bool = False
+    CORS_ORIGINS: str = ""
+
+    @field_validator("DEBUG", "ENABLE_DEMO_AUTH", mode="before")
+    @classmethod
+    def parse_bool_env(cls, v: Any) -> bool:
+        if isinstance(v, str):
+            clean = v.strip().lower()
+            if clean in ("true", "1", "yes", "on", "debug", "dev", "development"):
+                return True
+            if clean in ("false", "0", "no", "off", "release", "prod", "production"):
+                return False
+        return bool(v)
 
     # AI Face Recognition Threshold (Max Euclidean Distance)
     FACE_RECOGNITION_THRESHOLD: float = 0.55
@@ -92,6 +107,19 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+
+    @field_validator("SECRET_KEY", mode="before")
+    @classmethod
+    def validate_secret_key(cls, v: Any) -> str:
+        val = str(v).strip() if v else ""
+        if not val:
+            import secrets
+            return secrets.token_hex(32)
+        return val
+
+    @property
+    def is_default_secret_key(self) -> bool:
+        return self.SECRET_KEY == "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7"
 
     @property
     def DATABASE_URL(self) -> str:

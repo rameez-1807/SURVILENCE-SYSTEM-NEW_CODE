@@ -31,24 +31,32 @@ def generate_signed_token(file_ref: str, expires_at: int) -> str:
 
 
 def find_media_file(file_name: str) -> Optional[Path]:
-    """Search for the media file in storage/evidence or fallback evidence directories."""
-    file_path = EVIDENCE_STORAGE_DIR / file_name
-    if file_path.exists():
+    """Search for the media file in storage/evidence or fallback evidence directories with path traversal protection."""
+    base_name = Path(file_name).name
+    if not base_name or ".." in file_name:
+        return None
+
+    storage_root = EVIDENCE_STORAGE_DIR.resolve()
+    file_path = (EVIDENCE_STORAGE_DIR / base_name).resolve()
+    if file_path.is_relative_to(storage_root) and file_path.exists() and file_path.is_file():
         return file_path
     
     # Check subfolders in storage/evidence
-    found = list(EVIDENCE_STORAGE_DIR.rglob(Path(file_name).name))
-    if found:
-        return found[0]
+    for f in EVIDENCE_STORAGE_DIR.rglob(base_name):
+        rf = f.resolve()
+        if rf.is_relative_to(storage_root) and rf.exists() and rf.is_file():
+            return rf
         
     # Check fallback evidence directory
     if EVIDENCE_FALLBACK_DIR.exists():
-        fallback_path = EVIDENCE_FALLBACK_DIR / file_name
-        if fallback_path.exists():
+        fallback_root = EVIDENCE_FALLBACK_DIR.resolve()
+        fallback_path = (EVIDENCE_FALLBACK_DIR / base_name).resolve()
+        if fallback_path.is_relative_to(fallback_root) and fallback_path.exists() and fallback_path.is_file():
             return fallback_path
-        found_fb = list(EVIDENCE_FALLBACK_DIR.rglob(Path(file_name).name))
-        if found_fb:
-            return found_fb[0]
+        for f in EVIDENCE_FALLBACK_DIR.rglob(base_name):
+            rf = f.resolve()
+            if rf.is_relative_to(fallback_root) and rf.exists() and rf.is_file():
+                return rf
             
     return None
 

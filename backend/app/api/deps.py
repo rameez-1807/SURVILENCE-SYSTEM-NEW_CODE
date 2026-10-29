@@ -34,30 +34,20 @@ async def get_current_user(
     """Validate JWT token and return the current user."""
 
     # ── DEMO MODE ────────────────────────────────────────────────────────────
-    # Accept any token that starts with 'demo-token-' and return a fake admin
-    # user so the frontend can be demoed without a real auth backend.
+    # Gate demo mode strictly behind explicit environment flags.
+    # NEVER allow in production or by default.
     if token.startswith("demo-token-"):
-        from sqlalchemy import select
-        from sqlalchemy.orm import selectinload
-        # Try to return the first active user from DB as the demo user
-        try:
-            stmt = (
-                select(User)
-                .where(User.is_active == True)
-                .options(selectinload(User.memberships))
-                .limit(1)
+        if not (settings.DEBUG and getattr(settings, "ENABLE_DEMO_AUTH", False)):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Demo authentication tokens are rejected. Valid authentication required.",
+                headers={"WWW-Authenticate": "Bearer"},
             )
-            result = await session.execute(stmt)
-            demo_user = result.scalar_one_or_none()
-            if demo_user:
-                return demo_user
-        except Exception:
-            pass
-        # Fallback: build a minimal in-memory User object if DB has no users
+        # Even when explicitly enabled in local dev, return a restricted demo user (never real platform_admin)
         fake_user = User()
         fake_user.id = uuid.UUID("00000000-0000-0000-0000-000000000001")
-        fake_user.email = "demo@demo.com"
-        setattr(fake_user, "full_name", "Demo User")
+        fake_user.email = "demo@surveillance.local"
+        setattr(fake_user, "full_name", "Restricted Demo User")
         fake_user.is_active = True
         fake_user.memberships = []
         return fake_user
