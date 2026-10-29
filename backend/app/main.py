@@ -12,12 +12,14 @@ from contextlib import asynccontextmanager
 # Ensure low memory footprint and writable config dir on cloud environments (e.g. Render 512MB)
 os.environ.setdefault("YOLO_CONFIG_DIR", "/tmp/Ultralytics")
 os.environ.setdefault("MALLOC_ARENA_MAX", "2")
-os.environ.setdefault("OMP_NUM_THREADS", "1")
-os.environ.setdefault("MKL_NUM_THREADS", "1")
+_cpu_cores = os.cpu_count() or 2
+_target_threads = str(min(4, _cpu_cores))
+os.environ.setdefault("OMP_NUM_THREADS", _target_threads)
+os.environ.setdefault("MKL_NUM_THREADS", _target_threads)
 
 try:
     import torch
-    torch.set_num_threads(min(2, os.cpu_count() or 1))
+    torch.set_num_threads(min(4, _cpu_cores))
 except Exception:
     pass
 

@@ -363,6 +363,7 @@ def _run_raw_inference(
         return np.empty((0, 4)), np.empty((0,)), np.empty((0,), dtype=int), elapsed_ms
 
     # 6. Rescale boxes back to original frame dimensions
+    det = det.clone()
     det[:, :4] = scale_boxes(tensor.shape[2:], det[:, :4], frame.shape).round()
 
     # Move to CPU numpy

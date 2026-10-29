@@ -45,6 +45,13 @@ from app.core.ai.yolov9_singleton import (
     remove_session_tracker as yolov9_remove_session_tracker,
     unload_model as yolov9_unload_model,
 )
+from app.core.ai.rfdetr_singleton import (
+    track_frame as rfdetr_track_frame,
+    detect_frame as rfdetr_detect,
+    is_loaded as rfdetr_is_loaded,
+    remove_session_tracker as rfdetr_remove_session_tracker,
+    unload_model as rfdetr_unload_model,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +74,8 @@ def _evict_other_models(target_model: str) -> None:
             yoloworld_unload_model()
         if yolo11m_is_loaded():
             yolo11m_unload_model()
+        if rfdetr_is_loaded():
+            rfdetr_unload_model()
     elif target_model in ("yolov9", "yolov9-c", "yolo9"):
         if yoloe_is_loaded():
             yoloe_unload_model()
@@ -74,6 +83,8 @@ def _evict_other_models(target_model: str) -> None:
             yoloworld_unload_model()
         if yolo11m_is_loaded():
             yolo11m_unload_model()
+        if rfdetr_is_loaded():
+            rfdetr_unload_model()
     elif target_model in ("yoloworld", "yolo-world", "open_vocab"):
         if yoloe_is_loaded():
             yoloe_unload_model()
@@ -81,6 +92,8 @@ def _evict_other_models(target_model: str) -> None:
             yolov9_unload_model()
         if yolo11m_is_loaded():
             yolo11m_unload_model()
+        if rfdetr_is_loaded():
+            rfdetr_unload_model()
     elif target_model in ("yolo11m", "yolo11", "yolo11m-coco"):
         if yoloe_is_loaded():
             yoloe_unload_model()
@@ -88,6 +101,17 @@ def _evict_other_models(target_model: str) -> None:
             yolov9_unload_model()
         if yoloworld_is_loaded():
             yoloworld_unload_model()
+        if rfdetr_is_loaded():
+            rfdetr_unload_model()
+    elif target_model in ("rfdetr", "rfdetr_nano", "rf-detr", "rf-detr-nano", "rfdetr-nano"):
+        if yoloe_is_loaded():
+            yoloe_unload_model()
+        if yolov9_is_loaded():
+            yolov9_unload_model()
+        if yoloworld_is_loaded():
+            yoloworld_unload_model()
+        if yolo11m_is_loaded():
+            yolo11m_unload_model()
 
 
 def _get_detection_settings():
@@ -147,7 +171,7 @@ async def _persist_confirmed_track(item: dict, camera_name: str = "Webcam Live",
             "dedupe_key": dedupe_key,
             "observed_at": datetime.now(timezone.utc),
             "model_id": m_id,
-            "model_version": "c" if "yolov9" in m_id.lower() else ("11m" if "11" in m_id else "v2"),
+            "model_version": "nano" if "rfdetr" in m_id.lower() or "rf-detr" in m_id.lower() else ("c" if "yolov9" in m_id.lower() else ("11m" if "11" in m_id else "v2")),
             "state": "OPEN",
             "severity": "medium" if conf >= 0.70 else "low",
         }
@@ -291,6 +315,8 @@ async def object_detection_ws(websocket: WebSocket):
         while True:
             try:
                 data = await websocket.receive_json()
+            except WebSocketDisconnect:
+                break
             except Exception as e:
                 logger.debug(f"[OBJECT-DETECTION] Invalid frame packet: {e}")
                 await websocket.send_json({"error": "Invalid JSON frame payload"})
@@ -366,9 +392,27 @@ async def object_detection_ws(websocket: WebSocket):
                     )
                     result = raw_res
                     result["new_confirmed"] = []
+                elif req_model in ("rfdetr", "rfdetr_nano", "rf-detr", "rf-detr-nano", "rfdetr-nano"):
+                    # RF-DETR-Nano Real-Time Vision Transformer with ByteTrack Tracking
+                    result = await asyncio.to_thread(
+                        rfdetr_track_frame,
+                        session_id=session_id,
+                        frame=frame,
+                        confidence=conf,
+                        imgsz=target_imgsz,
+                        classes=req_classes,
+                    )
+                elif req_model in ("rfdetr_2xl", "rfdetr-2xl", "rfdetr2xl"):
+                    # RF-DETR-2XL Safety Gate Check
+                    from app.core.ai.rfdetr_plus_adapter import check_2xl_readiness
+                    readiness = check_2xl_readiness()
+                    await websocket.send_json({
+                        "error": f"RF-DETR-2XL unavailable: {readiness['reason']}"
+                    })
+                    continue
                 else:
                     logger.warning(f"[OBJECT-DETECTION] Unknown requested model '{req_model}'")
-                    await websocket.send_json({"error": f"Unknown model '{req_model}'. Supported: yoloe, yolov9, yoloworld, yolo11m"})
+                    await websocket.send_json({"error": f"Unknown model '{req_model}'. Supported: yoloe, yolov9, yoloworld, yolo11m, rfdetr_nano, rfdetr_2xl"})
                     continue
 
             except Exception as e:
@@ -413,3 +457,4 @@ async def object_detection_ws(websocket: WebSocket):
         yoloe_remove_session_tracker(session_id)
         yoloworld_remove_session_tracker(session_id)
         yolov9_remove_session_tracker(session_id)
+        rfdetr_remove_session_tracker(session_id)

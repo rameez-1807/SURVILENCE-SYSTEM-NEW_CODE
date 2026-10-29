@@ -79,9 +79,9 @@ export default function Objects() {
   const [selectedEvent, setSelectedEvent] = useState<ObjectDetectionEvent | null>(null);
 
   // ── Live Detection Model & Sensitivity State ──
-  const [selectedModel, setSelectedModel] = useState<'browser' | 'yoloe' | 'yolov9' | 'yoloworld' | 'yolo11m'>('browser');
+  const [selectedModel, setSelectedModel] = useState<'browser' | 'yoloe' | 'yolov9' | 'yoloworld' | 'yolo11m' | 'rfdetr_nano' | 'rfdetr_2xl'>('browser');
   const [liveConfidence, setLiveConfidence] = useState<number>(0.35);
-  const selectedModelRef = useRef<'browser' | 'yoloe' | 'yolov9' | 'yoloworld' | 'yolo11m'>('browser');
+  const selectedModelRef = useRef<'browser' | 'yoloe' | 'yolov9' | 'yoloworld' | 'yolo11m' | 'rfdetr_nano' | 'rfdetr_2xl'>('browser');
   const liveConfidenceRef = useRef<number>(0.35);
 
   // Open-Vocabulary Target Classes for YOLO-World
@@ -1429,6 +1429,28 @@ export default function Objects() {
                     >
                       YOLO11m (Standard COCO)
                     </button>
+                    <button
+                      disabled={isLiveCameraActive}
+                      onClick={() => setSelectedModel('rfdetr_nano')}
+                      title="RF-DETR-Nano Real-Time Detection Transformer with DINOv2 backbone and ByteTrack tracking (80 COCO classes)"
+                      className={cn(
+                        "flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] font-bold transition-all",
+                        selectedModel === 'rfdetr_nano' 
+                          ? "bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-xs" 
+                          : "text-text-muted hover:text-text"
+                      )}
+                    >
+                      <Sparkles className="w-3 h-3 text-purple-400" />
+                      RF-DETR Nano (Transformer)
+                    </button>
+                    <button
+                      disabled={true}
+                      title="RF-DETR 2XL (126M params, 880x880) requires dedicated NVIDIA CUDA GPU (8GB+ VRAM) and explicit Platform Model License (PML 1.0) acceptance. Currently disabled."
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium text-text-muted/40 border border-border/40 cursor-not-allowed opacity-60"
+                    >
+                      <Box className="w-3 h-3 text-text-muted/40" />
+                      RF-DETR 2XL (GPU Only)
+                    </button>
                   </div>
                 )}
               </div>
@@ -1513,6 +1535,22 @@ export default function Objects() {
                 <div className="flex items-center gap-2">
                   <span className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/25 text-[10px] font-semibold">
                     Checkpoint: yolov9-c-converted.pt
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* RF-DETR-Nano Official Transformer Banner */}
+            {scanMode === 'live' && selectedModel === 'rfdetr_nano' && (
+              <div className="px-4 py-2 bg-gradient-to-r from-purple-950/40 via-surface/80 to-surface/70 border-b border-border/80 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2 text-text-muted text-[11px]">
+                  <Sparkles className="w-3.5 h-3.5 text-purple-400 shrink-0 animate-pulse" />
+                  <span className="font-semibold text-text">RF-DETR Nano Transformer Active</span>
+                  <span className="hidden sm:inline text-text-muted">· DINOv2 Vision Transformer backbone with ByteTrack tracking (80 COCO classes)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-300 border border-purple-500/25 text-[10px] font-semibold">
+                    Checkpoint: rf-detr-nano.pth
                   </span>
                 </div>
               </div>
@@ -1638,6 +1676,7 @@ export default function Objects() {
                         {selectedModel === 'browser' ? 'Browser COCO-SSD Live Detection' : selectedModel === 'yoloe' ? 'YOLOE Prompt-Free (Auto Detect) & ByteTrack Live Detection' :
                          selectedModel === 'yolov9' ? 'YOLOv9-C Official & ByteTrack Live Detection' :
                          selectedModel === 'yoloworld' ? 'YOLO-World Open-Vocabulary Live Detection' :
+                         selectedModel === 'rfdetr_nano' ? 'RF-DETR Nano Vision Transformer & ByteTrack Live Detection' :
                          'YOLO11m Live Real-Time Detection'}
                       </h4>
                       <p className="text-xs text-text-muted max-w-sm mx-auto">
@@ -1645,6 +1684,8 @@ export default function Objects() {
                           ? 'Zero-prompt everyday multi-object detection powered by genuine YOLOE neural network and ByteTrack. Automatically identifies laptop, phone, bottle, cup, chair, person, pen, watch, backpack, etc. with accurate bounding boxes, confidence, and persistent track IDs.'
                           : selectedModel === 'yoloworld'
                           ? 'Real-time open-vocabulary inference with stable ByteTrack multi-object tracking. Detect any custom object with bounding boxes, confidence, and persistent track IDs.'
+                          : selectedModel === 'rfdetr_nano'
+                          ? 'Next-generation Real-Time Detection Transformer (RF-DETR) powered by a DINOv2 Vision Transformer backbone with persistent ByteTrack tracking IDs across consecutive video frames.'
                           : 'Real-time object detection with persistent identity tracking across consecutive video frames.'
                         }
                       </p>
@@ -1997,7 +2038,7 @@ export default function Objects() {
                 </div>
                 {isLiveCameraActive && (
                   <span className="text-[11px] font-mono text-text-muted">
-                    Active Tracks: <span className="text-cyan-400 font-bold">{liveActiveTracks}</span> · Model: <span className="text-cyan-400 font-bold uppercase">{selectedModel === 'yoloe' ? 'YOLOE (Prompt-Free)' : selectedModel}</span>
+                    Active Tracks: <span className="text-cyan-400 font-bold">{liveActiveTracks}</span> · Model: <span className="text-cyan-400 font-bold uppercase">{selectedModel === 'yoloe' ? 'YOLOE (Prompt-Free)' : selectedModel === 'rfdetr_nano' ? 'RF-DETR (Nano Transformer)' : selectedModel === 'rfdetr_2xl' ? 'RF-DETR 2XL (GPU Only)' : selectedModel}</span>
                   </span>
                 )}
               </div>
