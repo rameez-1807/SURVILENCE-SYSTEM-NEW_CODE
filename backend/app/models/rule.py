@@ -14,15 +14,15 @@ class Rule(Base):
     tenant_id = Column(sa.Uuid(), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
     site_id = Column(sa.Uuid(), ForeignKey("sites.id", ondelete="CASCADE"), nullable=True)
     
-    name = Column(String, nullable=False)
+    name = Column(String(255), nullable=False)
     enabled = Column(Boolean, nullable=False, default=True)
-    detection_class = Column(String, nullable=False) # e.g., "person", "vehicle"
+    detection_class = Column(String(64), nullable=False) # e.g., "person", "vehicle"
     confidence_threshold = Column(Float, nullable=False, default=0.5)
     
     zone_configuration = Column(JSON, nullable=True) # E.g., list of polygons
     schedule_configuration = Column(JSON, nullable=True) # E.g., time windows
     
-    severity = Column(String, nullable=False, default="medium")
+    severity = Column(String(32), nullable=False, default="medium")
     version = Column(Integer, nullable=False, default=1)
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)

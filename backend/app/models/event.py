@@ -16,22 +16,22 @@ class Event(Base):
     camera_id = Column(sa.Uuid(), ForeignKey("cameras.id", ondelete="CASCADE"), nullable=False)
     rule_id = Column(sa.Uuid(), ForeignKey("rules.id", ondelete="SET NULL"), nullable=True)
 
-    event_type = Column(String, nullable=False)
-    severity = Column(String, nullable=False, default="low") # low, medium, high, critical
-    state = Column(String, nullable=False, default="OPEN") # OPEN, ACKNOWLEDGED, ASSIGNED, CLOSED
+    event_type = Column(String(64), nullable=False)
+    severity = Column(String(32), nullable=False, default="low") # low, medium, high, critical
+    state = Column(String(32), nullable=False, default="OPEN") # OPEN, ACKNOWLEDGED, ASSIGNED, CLOSED
     
     observed_at = Column(DateTime(timezone=True), nullable=False)
     confidence = Column(Float, nullable=False, default=0.0)
     
     needs_review = Column(sa.Boolean, nullable=False, default=False)
     is_llm_verified = Column(sa.Boolean, nullable=False, default=False)
-    corrected_label = Column(String, nullable=True)
+    corrected_label = Column(String(128), nullable=True)
     
-    model_id = Column(String, nullable=False)
-    model_version = Column(String, nullable=False)
+    model_id = Column(String(128), nullable=False)
+    model_version = Column(String(64), nullable=False)
     
-    evidence_reference = Column(String, nullable=True)
-    dedupe_key = Column(String, nullable=False)
+    evidence_reference = Column(String(512), nullable=True)
+    dedupe_key = Column(String(255), nullable=False)
     track_id = Column(sa.Integer, nullable=True)
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
@@ -62,10 +62,10 @@ class EventAudit(Base):
     event_id = Column(sa.Uuid(), ForeignKey("events.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(sa.Uuid(), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     
-    previous_state = Column(String, nullable=False)
-    new_state = Column(String, nullable=False)
+    previous_state = Column(String(32), nullable=False)
+    new_state = Column(String(32), nullable=False)
     
-    reason = Column(String, nullable=True)
+    reason = Column(String(512), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
     event = relationship("Event", backref="audits")

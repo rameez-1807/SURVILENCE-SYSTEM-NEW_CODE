@@ -48,6 +48,12 @@ class Settings(BaseSettings):
     DATABASE_USER: str = "postgres"
     DATABASE_PASSWORD: str = "postgres"
     DATABASE_NAME: str = "ai_surveillance"
+    # MySQL Database Settings
+    MYSQL_HOST: str = ""
+    MYSQL_PORT: int = 3306
+    MYSQL_USER: str = ""
+    MYSQL_PASSWORD: str = ""
+    MYSQL_DATABASE: str = ""
     # Supabase API (for supabase-py client)
     SUPABASE_URL: str = ""
     SUPABASE_PUBLISHABLE_KEY: str = ""
@@ -125,10 +131,11 @@ class Settings(BaseSettings):
     def DATABASE_URL(self) -> str:
         """Construct the async database connection URL.
 
-        Priority: DATABASE_URL / SUPABASE_DB_URL env > local SQLite.
+        Priority: DATABASE_URL / MYSQL_* env / SUPABASE_DB_URL env > local SQLite.
         Automatically strips any accidental whitespace/newlines and resolves Supabase IPv4 pooler.
         """
         import os
+        import urllib.parse
         raw_url = os.environ.get("DATABASE_URL") or os.environ.get("SUPABASE_DB_URL") or self.SUPABASE_DB_URL
         if raw_url:
             url = raw_url.replace("\r", "").replace("\n", "").strip().strip("'\"").strip()
@@ -136,10 +143,25 @@ class Settings(BaseSettings):
                 url = url.replace("postgres://", "postgresql+asyncpg://", 1)
             elif url.startswith("postgresql://") and not url.startswith("postgresql+"):
                 url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+            elif url.startswith("mysql://") and not url.startswith("mysql+"):
+                url = url.replace("mysql://", "mysql+aiomysql://", 1)
             # Render free tier has no IPv6 support. If user provides direct Supabase port 5432, route through IPv4 pooler.
             if "db.ofknpvaxynvokuzfkwds.supabase.co" in url:
                 url = "postgresql+asyncpg://postgres.ofknpvaxynvokuzfkwds:suHH6zklTgKZoqS8@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres"
             return url
+
+        # Check explicit MySQL variables
+        mysql_user = os.environ.get("MYSQL_USER") or self.MYSQL_USER
+        mysql_password = os.environ.get("MYSQL_PASSWORD") or os.environ.get("MYSQL_PASS") or self.MYSQL_PASSWORD
+        mysql_host = os.environ.get("MYSQL_HOST") or self.MYSQL_HOST
+        mysql_port = os.environ.get("MYSQL_PORT") or str(self.MYSQL_PORT)
+        mysql_db = os.environ.get("MYSQL_DATABASE") or os.environ.get("MYSQL_DB") or self.MYSQL_DATABASE
+
+        if mysql_user and mysql_host and mysql_db:
+            encoded_pwd = urllib.parse.quote_plus(mysql_password) if mysql_password else ""
+            pwd_part = f":{encoded_pwd}" if encoded_pwd else ""
+            return f"mysql+aiomysql://{mysql_user}{pwd_part}@{mysql_host}:{mysql_port}/{mysql_db}"
+
         # If in cloud deployment (Render) without DATABASE_URL, default to the Supabase pooler
         if os.environ.get("RENDER") or os.environ.get("PORT"):
             return "postgresql+asyncpg://postgres.ofknpvaxynvokuzfkwds:suHH6zklTgKZoqS8@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres"
@@ -151,9 +173,10 @@ class Settings(BaseSettings):
     def DATABASE_URL_SYNC(self) -> str:
         """Construct the sync database connection URL (for Alembic).
 
-        Priority: DATABASE_URL_SYNC / SUPABASE_DB_URL_SYNC env > local SQLite.
+        Priority: DATABASE_URL_SYNC / MYSQL_* / SUPABASE_DB_URL_SYNC env > local SQLite.
         """
         import os
+        import urllib.parse
         raw_url = os.environ.get("DATABASE_URL_SYNC") or os.environ.get("SUPABASE_DB_URL_SYNC") or self.SUPABASE_DB_URL_SYNC
         if raw_url:
             url = raw_url.replace("\r", "").replace("\n", "").strip().strip("'\"").strip()
@@ -161,9 +184,27 @@ class Settings(BaseSettings):
                 url = url.replace("postgres://", "postgresql+psycopg://", 1)
             elif url.startswith("postgresql://") and not url.startswith("postgresql+"):
                 url = url.replace("postgresql://", "postgresql+psycopg://", 1)
+            elif url.startswith("mysql://") or url.startswith("mysql+aiomysql://"):
+                url = url.replace("mysql+aiomysql://", "mysql+pymysql://", 1).replace("mysql://", "mysql+pymysql://", 1)
             if "db.ofknpvaxynvokuzfkwds.supabase.co" in url:
                 url = "postgresql+psycopg://postgres.ofknpvaxynvokuzfkwds:suHH6zklTgKZoqS8@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres"
             return url
+
+        db_async = os.environ.get("DATABASE_URL", "")
+        if db_async.startswith("mysql"):
+            return db_async.replace("mysql+aiomysql://", "mysql+pymysql://", 1).replace("mysql://", "mysql+pymysql://", 1)
+
+        mysql_user = os.environ.get("MYSQL_USER") or self.MYSQL_USER
+        mysql_password = os.environ.get("MYSQL_PASSWORD") or os.environ.get("MYSQL_PASS") or self.MYSQL_PASSWORD
+        mysql_host = os.environ.get("MYSQL_HOST") or self.MYSQL_HOST
+        mysql_port = os.environ.get("MYSQL_PORT") or str(self.MYSQL_PORT)
+        mysql_db = os.environ.get("MYSQL_DATABASE") or os.environ.get("MYSQL_DB") or self.MYSQL_DATABASE
+
+        if mysql_user and mysql_host and mysql_db:
+            encoded_pwd = urllib.parse.quote_plus(mysql_password) if mysql_password else ""
+            pwd_part = f":{encoded_pwd}" if encoded_pwd else ""
+            return f"mysql+pymysql://{mysql_user}{pwd_part}@{mysql_host}:{mysql_port}/{mysql_db}"
+
         if os.environ.get("RENDER") or os.environ.get("PORT"):
             return "postgresql+psycopg://postgres.ofknpvaxynvokuzfkwds:suHH6zklTgKZoqS8@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres"
         from pathlib import Path

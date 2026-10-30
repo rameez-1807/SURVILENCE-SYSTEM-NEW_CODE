@@ -34,7 +34,6 @@ class Membership(Base):
         sa.Uuid(),
         primary_key=True,
         default=uuid.uuid4,
-        server_default=text("gen_random_uuid()"),
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
         sa.Uuid(),

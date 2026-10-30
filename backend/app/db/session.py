@@ -10,8 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.core.config import settings
 
-# Detect if using PostgreSQL (Supabase) or SQLite (local dev)
-_is_postgres = settings.DATABASE_URL.startswith("postgresql")
+# Detect if using PostgreSQL, MySQL, or SQLite
+_db_url = settings.DATABASE_URL
+_is_postgres = _db_url.startswith("postgresql")
+_is_mysql = _db_url.startswith("mysql")
 
 # Build engine kwargs based on backend
 _engine_kwargs: dict[str, Any] = {
@@ -30,6 +32,15 @@ if _is_postgres:
             # asyncpg uses them by default, so we must disable statement_cache_size.
             "statement_cache_size": 0,
             "prepared_statement_cache_size": 0,
+        },
+    })
+elif _is_mysql:
+    _engine_kwargs.update({
+        "pool_size": 10,
+        "max_overflow": 20,
+        "pool_recycle": 1800,        # Recycle every 30 min to prevent MySQL idle timeout
+        "connect_args": {
+            "connect_timeout": 30,
         },
     })
 else:

@@ -24,7 +24,6 @@ class User(Base):
         sa.Uuid(),
         primary_key=True,
         default=uuid.uuid4,
-        server_default=text("gen_random_uuid()"),
     )
     email: Mapped[str] = mapped_column(
         String(255),

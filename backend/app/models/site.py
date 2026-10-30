@@ -24,7 +24,6 @@ class Site(Base):
         sa.Uuid(),
         primary_key=True,
         default=uuid.uuid4,
-        server_default=text("gen_random_uuid()"),
     )
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         sa.Uuid(),
