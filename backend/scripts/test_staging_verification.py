@@ -275,14 +275,34 @@ def restore_backup_strictly(staging_conn, sql_path: Path, json_path: Path) -> Di
         for idx, stmt in enumerate(statements, 1):
             if not stmt or stmt.startswith("--"):
                 continue
+
+            # Cross-engine compatibility: Normalize MySQL 8 specific collations for MariaDB
+            stmt_exec = stmt
+            if "utf8mb4_0900_" in stmt_exec:
+                stmt_exec = stmt_exec.replace("utf8mb4_0900_ai_ci", "utf8mb4_unicode_ci")
+                stmt_exec = stmt_exec.replace("utf8mb4_0900_bin", "utf8mb4_bin")
+                stmt_exec = stmt_exec.replace("utf8mb4_0900_as_cs", "utf8mb4_unicode_ci")
+
             try:
-                cur.execute(stmt)
+                cur.execute(stmt_exec)
             except Exception as ex:
-                raise RuntimeError(
-                    f"FATAL RESTORE ERROR at statement #{idx} in `{sql_path.name}`:\n"
-                    f"SQL: {stmt[:160]}...\n"
-                    f"Error: {ex}"
-                )
+                # If error is collation mismatch (Error 1273), fallback gracefully to utf8mb4_general_ci
+                if "1273" in str(ex) or "Unknown collation" in str(ex):
+                    fallback_stmt = stmt_exec.replace("utf8mb4_unicode_ci", "utf8mb4_general_ci")
+                    try:
+                        cur.execute(fallback_stmt)
+                    except Exception as fallback_ex:
+                        raise RuntimeError(
+                            f"FATAL RESTORE ERROR at statement #{idx} in `{sql_path.name}`:\n"
+                            f"SQL: {stmt[:160]}...\n"
+                            f"Error: {fallback_ex}"
+                        )
+                else:
+                    raise RuntimeError(
+                        f"FATAL RESTORE ERROR at statement #{idx} in `{sql_path.name}`:\n"
+                        f"SQL: {stmt[:160]}...\n"
+                        f"Error: {ex}"
+                    )
 
         cur.execute("SET FOREIGN_KEY_CHECKS = 1;")
         staging_conn.commit()
@@ -353,10 +373,35 @@ def run_staging_verification(
         raise
 
     # --------------------------------------------------------------------------
-    # Test 3: Backup File Integrity
+    # Test 3: Engine & Schema Compatibility Check
     # --------------------------------------------------------------------------
     print("\n" + "=" * 75)
-    print(" 3. BACKUP FILE INTEGRITY")
+    print(" 3. ENGINE & SCHEMA COMPATIBILITY CHECK")
+    print("=" * 75)
+    with staging_conn.cursor() as cur:
+        cur.execute("SELECT VERSION();")
+        version_str = cur.fetchone()[0]
+        cur.execute("SHOW ENGINES;")
+        engines = cur.fetchall()
+        innodb_ok = any(e[0].lower() == "innodb" and e[1].upper() in ("DEFAULT", "YES") for e in engines)
+        cur.execute("SELECT @@character_set_database, @@collation_database;")
+        charset_row = cur.fetchone()
+        db_charset = charset_row[0] if charset_row else "unknown"
+        db_collation = charset_row[1] if charset_row else "unknown"
+
+    engine_desc = f"MariaDB ({version_str})" if "mariadb" in version_str.lower() else f"MySQL ({version_str})"
+    compatibility_ok = innodb_ok
+    record_test(
+        "Engine Compatibility",
+        compatibility_ok,
+        f"{engine_desc} | InnoDB: {'ACTIVE' if innodb_ok else 'MISSING'} | Charset: {db_charset}/{db_collation}"
+    )
+
+    # --------------------------------------------------------------------------
+    # Test 4: Backup File Integrity
+    # --------------------------------------------------------------------------
+    print("\n" + "=" * 75)
+    print(" 4. BACKUP FILE INTEGRITY")
     print("=" * 75)
     sql_size = os.path.getsize(sql_backup)
     json_size = os.path.getsize(json_backup)
@@ -364,10 +409,10 @@ def run_staging_verification(
     record_test("Backup Files Valid", files_ok, f"SQL: {sql_backup.name} ({sql_size:,} bytes), JSON: {json_backup.name} ({json_size:,} bytes)")
 
     # --------------------------------------------------------------------------
-    # Test 4: Backup Restoration & Row Count Matching
+    # Test 5: Backup Restoration & Row Count Matching
     # --------------------------------------------------------------------------
     print("\n" + "=" * 75)
-    print(" 4. BACKUP RESTORATION INTO STAGING")
+    print(" 5. BACKUP RESTORATION INTO STAGING")
     print("=" * 75)
     with open(json_backup, "r", encoding="utf-8") as f:
         backup_meta = json.load(f)
@@ -378,10 +423,10 @@ def run_staging_verification(
     record_test("Restoration Row Counts", all_matched, f"All {len(restored_counts)} tables match backup metadata 1:1 ({sum(restored_counts.values())} total rows)")
 
     # --------------------------------------------------------------------------
-    # Test 5: Pre-Migration State & Admin Password Capture (Secret Redacted)
+    # Test 6: Pre-Migration State & Admin Password Capture (Secret Redacted)
     # --------------------------------------------------------------------------
     print("\n" + "=" * 75)
-    print(" 5. PRE-MIGRATION STATE & ADMIN PASSWORD HASH CHECK")
+    print(" 6. PRE-MIGRATION STATE & ADMIN PASSWORD HASH CHECK")
     print("=" * 75)
     with staging_conn.cursor(DictCursor) as cur:
         cur.execute("SELECT id, email, hashed_password, is_active FROM users WHERE LOWER(email) = 'admin@example.com' LIMIT 1;")
@@ -404,28 +449,28 @@ def run_staging_verification(
     )
 
     # --------------------------------------------------------------------------
-    # Test 6: Dry-Run Migration Simulation on Staging
+    # Test 7: Dry-Run Migration Simulation on Staging
     # --------------------------------------------------------------------------
     print("\n" + "=" * 75)
-    print(" 6. MIGRATION DRY-RUN SIMULATION ON STAGING")
+    print(" 7. MIGRATION DRY-RUN SIMULATION ON STAGING")
     print("=" * 75)
     dry_run_res = run_migration(staging_conn, dry_run=True)
     record_test("Migration Dry-Run Audit", True, f"Columns to alter: {dry_run_res['columns_to_alter']}, Primary keys to normalize: {sum(dry_run_res['pk_normalizations'].values())}")
 
     # --------------------------------------------------------------------------
-    # Test 7: Live Migration Execution on Staging
+    # Test 8: Live Migration Execution on Staging
     # --------------------------------------------------------------------------
     print("\n" + "=" * 75)
-    print(" 7. LIVE MIGRATION EXECUTION ON STAGING")
+    print(" 8. LIVE MIGRATION EXECUTION ON STAGING")
     print("=" * 75)
     live_res = run_migration(staging_conn, dry_run=False)
     record_test("Staging Migration Execution", True, "Schema column expansion, collision-proof normalization, and FK synchronization completed")
 
     # --------------------------------------------------------------------------
-    # Test 8: Verify Column Types (UUID Only Modified, Text Columns Untouched)
+    # Test 9: Verify Column Types (UUID Only Modified, Text Columns Untouched)
     # --------------------------------------------------------------------------
     print("\n" + "=" * 75)
-    print(" 8. SCHEMA MODIFICATION ACCURACY AUDIT")
+    print(" 9. SCHEMA MODIFICATION ACCURACY AUDIT")
     print("=" * 75)
     with staging_conn.cursor(DictCursor) as cur:
         cur.execute(
@@ -463,10 +508,10 @@ def run_staging_verification(
         raise RuntimeError(f"CRITICAL: Non-UUID text columns were modified: {unintended_altered_cols}")
 
     # --------------------------------------------------------------------------
-    # Test 9: Admin Password Preservation (Secret Redacted)
+    # Test 10: Admin Password Preservation (Secret Redacted)
     # --------------------------------------------------------------------------
     print("\n" + "=" * 75)
-    print(" 9. ADMIN PASSWORD HASH PRESERVATION (SECRET REDACTED)")
+    print(" 10. ADMIN PASSWORD HASH PRESERVATION (SECRET REDACTED)")
     print("=" * 75)
     with staging_conn.cursor(DictCursor) as cur:
         cur.execute("SELECT id, email, hashed_password, is_active FROM users WHERE LOWER(email) = 'admin@example.com' LIMIT 1;")
@@ -487,10 +532,10 @@ def run_staging_verification(
         raise RuntimeError("FATAL: Admin password hash changed during migration!")
 
     # --------------------------------------------------------------------------
-    # Test 10: Zero Record Loss Verification
+    # Test 11: Zero Record Loss Verification
     # --------------------------------------------------------------------------
     print("\n" + "=" * 75)
-    print(" 10. ROW COUNT & RECORD PRESERVATION")
+    print(" 11. ROW COUNT & RECORD PRESERVATION")
     print("=" * 75)
     post_counts = live_res["post_counts"]
     zero_data_loss = True
@@ -510,10 +555,10 @@ def run_staging_verification(
         raise RuntimeError(f"DATA LOSS DETECTED: {loss_details}")
 
     # --------------------------------------------------------------------------
-    # Test 11: Referential Integrity & Orphan Check
+    # Test 12: Referential Integrity & Orphan Check
     # --------------------------------------------------------------------------
     print("\n" + "=" * 75)
-    print(" 11. REFERENTIAL INTEGRITY & FOREIGN KEY AUDIT")
+    print(" 12. REFERENTIAL INTEGRITY & FOREIGN KEY AUDIT")
     print("=" * 75)
     staging_schema_info = discover_schema_and_foreign_keys(staging_conn)
     post_orphans = audit_referential_integrity(staging_conn, staging_schema_info)
@@ -527,10 +572,10 @@ def run_staging_verification(
     )
 
     # --------------------------------------------------------------------------
-    # Test 12: UUID Deserialization Check (No ValueError)
+    # Test 13: UUID Deserialization Check (No ValueError)
     # --------------------------------------------------------------------------
     print("\n" + "=" * 75)
-    print(" 12. UUID DESERIALIZATION VALIDATION")
+    print(" 13. UUID DESERIALIZATION VALIDATION")
     print("=" * 75)
     uuid_deserialization_ok = True
     with staging_conn.cursor() as cur:
@@ -553,10 +598,10 @@ def run_staging_verification(
     )
 
     # --------------------------------------------------------------------------
-    # Test 13: End-to-End Authentication & API Simulation (JWT Redacted)
+    # Test 14: End-to-End Authentication & API Simulation (JWT Redacted)
     # --------------------------------------------------------------------------
     print("\n" + "=" * 75)
-    print(" 13. FASTAPI AUTH & PROTECTED APIS SIMULATION (JWT REDACTED)")
+    print(" 14. FASTAPI AUTH & PROTECTED APIS SIMULATION (JWT REDACTED)")
     print("=" * 75)
     with staging_conn.cursor(DictCursor) as cur:
         # 1. Fetch user by email
