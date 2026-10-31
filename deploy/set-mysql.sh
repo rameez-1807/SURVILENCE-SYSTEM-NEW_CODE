@@ -42,8 +42,12 @@ if [ -d "venv" ]; then
     source venv/bin/activate
 fi
 pip install aiomysql pymysql cryptography -q
-python init_db.py
+python init_db.py || true
+
+echo "==> Restarting surveillance-backend service..."
+sudo systemctl daemon-reload 2>/dev/null || true
 sudo systemctl restart surveillance-backend 2>/dev/null || true
+sleep 2
 
 echo "==> Building frontend for production..."
 cd "$PROJECT_DIR/frontend"
