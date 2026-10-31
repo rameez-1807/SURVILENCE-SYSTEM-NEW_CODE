@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy import DateTime, Enum, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base
+from app.db.base import Base, SafeUUID
 
 
 class TenantStatus(str, enum.Enum):
@@ -28,7 +28,7 @@ class Tenant(Base):
     __tablename__ = "tenants"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        sa.Uuid(),
+        SafeUUID(),
         primary_key=True,
         default=uuid.uuid4,
     )

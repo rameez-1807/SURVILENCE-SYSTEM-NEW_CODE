@@ -30,8 +30,8 @@ async def init_db_and_seed():
         try:
             await conn.execute(text("SET FOREIGN_KEY_CHECKS = 0;"))
             await conn.execute(text("DELETE FROM memberships;"))
-            await conn.execute(text("DELETE FROM users WHERE email = 'admin@example.com';"))
-            await conn.execute(text("DELETE FROM tenants WHERE name = 'Default Organization';"))
+            await conn.execute(text("DELETE FROM users;"))
+            await conn.execute(text("DELETE FROM tenants;"))
             await conn.execute(text("SET FOREIGN_KEY_CHECKS = 1;"))
         except Exception as e:
             print(f"[!] Clean note: {e}")

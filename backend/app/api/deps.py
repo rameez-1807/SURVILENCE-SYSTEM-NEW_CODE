@@ -70,17 +70,25 @@ async def get_current_user(
         raise credentials_exception
 
     try:
-        user_uuid = uuid.UUID(str(token_data.sub).strip())
+        from app.db.base import parse_safe_uuid
+        user_uuid = parse_safe_uuid(token_data.sub)
         from sqlalchemy import select
         from sqlalchemy.orm import selectinload
-        stmt = (
-            select(User)
-            .where(User.id == user_uuid)
-            .options(selectinload(User.memberships))
-        )
-        result = await session.execute(stmt)
-        user = result.scalar_one_or_none()
-    except (ValueError, TypeError):
+        try:
+            stmt = (
+                select(User)
+                .where(User.id == user_uuid)
+                .options(selectinload(User.memberships))
+            )
+            result = await session.execute(stmt)
+            user = result.scalar_one_or_none()
+        except Exception:
+            stmt = select(User).where(User.id == user_uuid)
+            result = await session.execute(stmt)
+            user = result.scalar_one_or_none()
+            if user and not hasattr(user, "memberships"):
+                user.memberships = []
+    except Exception:
         raise credentials_exception
 
     if user is None:

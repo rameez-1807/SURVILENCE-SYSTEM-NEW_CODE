@@ -9,6 +9,7 @@ from typing import Any, AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
+from app.db.base import parse_safe_uuid  # noqa: F401 - ensures global UUID monkeypatches are active
 
 # Detect if using PostgreSQL, MySQL, or SQLite
 _db_url = settings.DATABASE_URL

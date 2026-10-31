@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy import Boolean, DateTime, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base
+from app.db.base import Base, SafeUUID
 
 
 class User(Base):
@@ -21,7 +21,7 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        sa.Uuid(),
+        SafeUUID(),
         primary_key=True,
         default=uuid.uuid4,
     )

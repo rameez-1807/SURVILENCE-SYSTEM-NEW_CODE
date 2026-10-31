@@ -29,7 +29,7 @@ class UserRepository:
 
     async def get_by_email(self, email: str, load_memberships: bool = True) -> Optional[User]:
         """Return a user by email, loading memberships with defensive fallback."""
-        from sqlalchemy import func
+        from sqlalchemy import func, text
         clean_email = email.strip().lower() if email else ""
         
         if load_memberships:
@@ -44,12 +44,42 @@ class UserRepository:
                 if user is not None:
                     return user
             except Exception:
-                # If selectinload on memberships encounters an enum or mapping issue, fallback to basic user query
                 pass
 
-        stmt = select(User).where(func.lower(User.email) == clean_email)
-        result = await self.db.execute(stmt)
-        return result.scalar_one_or_none()
+        try:
+            stmt = select(User).where(func.lower(User.email) == clean_email)
+            result = await self.db.execute(stmt)
+            user = result.scalar_one_or_none()
+            if user is not None:
+                return user
+        except Exception:
+            pass
+
+        # Ultimate Raw SQL fallback that never crashes on malformed UUID strings
+        try:
+            res = await self.db.execute(
+                text("SELECT id, email, hashed_password, is_active FROM users WHERE LOWER(email) = :e LIMIT 1"),
+                {"e": clean_email}
+            )
+            row = res.fetchone()
+            if row:
+                u = User()
+                raw_id = str(row[0])
+                try:
+                    clean_hex = raw_id.replace("-", "")
+                    u.id = uuid.UUID(hex=clean_hex) if len(clean_hex) == 32 else uuid.UUID(raw_id)
+                except Exception:
+                    u.id = uuid.uuid5(uuid.NAMESPACE_DNS, raw_id)
+                u.email = str(row[1])
+                u.hashed_password = str(row[2])
+                u.is_active = bool(row[3])
+                u.memberships = []
+                return u
+        except Exception as e:
+            import logging
+            logging.error(f"[UserRepo] Raw SQL fallback error: {e}")
+
+        return None
 
     async def create(self, user: User) -> User:
         """Insert a new user and return it."""

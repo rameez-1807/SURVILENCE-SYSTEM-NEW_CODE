@@ -13,7 +13,7 @@ import sqlalchemy as sa
 from sqlalchemy import DateTime, Enum, ForeignKey, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base
+from app.db.base import Base, SafeUUID
 
 
 class Role(str, enum.Enum):
@@ -31,18 +31,18 @@ class Membership(Base):
     __tablename__ = "memberships"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        sa.Uuid(),
+        SafeUUID(),
         primary_key=True,
         default=uuid.uuid4,
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
-        sa.Uuid(),
+        SafeUUID(),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     tenant_id: Mapped[uuid.UUID | None] = mapped_column(
-        sa.Uuid(),
+        SafeUUID(),
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=True,  # Can be null for platform_admins
         index=True,
