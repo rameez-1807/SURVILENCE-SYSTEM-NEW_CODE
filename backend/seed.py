@@ -18,12 +18,20 @@ async def seed_db():
             print("Admin user already exists.")
             return
 
-        print("Creating default tenant...")
-        tenant = Tenant(
-            id=uuid.UUID('bb398bec-8429-44db-b9ec-b04c3ac81c36'),
-            name="Default Organization"
+        # Check if tenant exists
+        default_tenant_id = uuid.UUID('bb398bec-8429-44db-b9ec-b04c3ac81c36')
+        tenant_res = await session.execute(
+            select(Tenant).where((Tenant.name == "Default Organization") | (Tenant.id == default_tenant_id))
         )
-        session.add(tenant)
+        tenant = tenant_res.scalar_one_or_none()
+        if not tenant:
+            print("Creating default tenant...")
+            tenant = Tenant(
+                id=default_tenant_id,
+                name="Default Organization"
+            )
+            session.add(tenant)
+            await session.flush()
 
         print("Creating admin user (admin@example.com / admin123)...")
         admin = User(

@@ -33,8 +33,10 @@ async def init_db_and_seed():
         tenant_id = uuid.UUID('bb398bec-8429-44db-b9ec-b04c3ac81c36')
         now = datetime.now(timezone.utc)
 
-        # Check / create tenant
-        tenant_res = await session.execute(select(Tenant).where(Tenant.id == tenant_id))
+        # Check / create tenant by name or id
+        tenant_res = await session.execute(
+            select(Tenant).where((Tenant.name == "Default Organization") | (Tenant.id == tenant_id))
+        )
         tenant = tenant_res.scalar_one_or_none()
         if not tenant:
             tenant = Tenant(
@@ -46,6 +48,8 @@ async def init_db_and_seed():
             )
             session.add(tenant)
             await session.flush()
+        else:
+            tenant_id = tenant.id
 
         result = await session.execute(select(User).where(User.email == "admin@example.com"))
         existing_user = result.scalar_one_or_none()
