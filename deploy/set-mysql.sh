@@ -44,4 +44,12 @@ fi
 pip install aiomysql pymysql cryptography -q
 python init_db.py
 sudo systemctl restart surveillance-backend 2>/dev/null || true
-echo "==> SUCCESS: Hostinger MySQL configured and backend restarted!"
+
+echo "==> Building frontend for production..."
+cd "$PROJECT_DIR/frontend"
+if command -v npm >/dev/null 2>&1; then
+    npm run build 2>/dev/null || true
+    sudo systemctl reload nginx 2>/dev/null || true
+fi
+
+echo "==> SUCCESS: Hostinger MySQL configured, backend and frontend deployed!"

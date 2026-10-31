@@ -36,11 +36,12 @@ if _is_postgres:
     })
 elif _is_mysql:
     _engine_kwargs.update({
-        "pool_size": 10,
-        "max_overflow": 20,
-        "pool_recycle": 1800,        # Recycle every 30 min to prevent MySQL idle timeout
+        "pool_size": 5,
+        "max_overflow": 10,
+        "pool_recycle": 60,         # Recycle connections every 60s to prevent Hostinger idle disconnects
+        "pool_pre_ping": True,       # Auto-detect dropped sockets
         "connect_args": {
-            "connect_timeout": 30,
+            "connect_timeout": 15,
         },
     })
 else:

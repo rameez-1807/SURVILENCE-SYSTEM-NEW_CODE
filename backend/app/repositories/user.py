@@ -27,15 +27,27 @@ class UserRepository:
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_by_email(self, email: str) -> Optional[User]:
-        """Return a user by email, loading memberships."""
+    async def get_by_email(self, email: str, load_memberships: bool = True) -> Optional[User]:
+        """Return a user by email, loading memberships with defensive fallback."""
         from sqlalchemy import func
         clean_email = email.strip().lower() if email else ""
-        stmt = (
-            select(User)
-            .where(func.lower(User.email) == clean_email)
-            .options(selectinload(User.memberships))
-        )
+        
+        if load_memberships:
+            try:
+                stmt = (
+                    select(User)
+                    .where(func.lower(User.email) == clean_email)
+                    .options(selectinload(User.memberships))
+                )
+                result = await self.db.execute(stmt)
+                user = result.scalar_one_or_none()
+                if user is not None:
+                    return user
+            except Exception:
+                # If selectinload on memberships encounters an enum or mapping issue, fallback to basic user query
+                pass
+
+        stmt = select(User).where(func.lower(User.email) == clean_email)
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 

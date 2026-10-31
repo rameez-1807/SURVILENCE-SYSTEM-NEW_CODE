@@ -20,9 +20,12 @@ router = APIRouter(tags=["Auth"])
 
 
 import asyncio
+import logging
+import traceback
 
 
 @router.post("/auth/token", response_model=Token)
+@router.post("/auth/access-token", response_model=Token)
 async def login_for_access_token(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -32,12 +35,23 @@ async def login_for_access_token(
     Using email as the username.
     """
     clean_username = form_data.username.strip().lower() if form_data.username else ""
-    repo = UserRepository(db)
-    user = await repo.get_by_email(email=clean_username)
+    try:
+        repo = UserRepository(db)
+        user = await repo.get_by_email(email=clean_username)
+    except Exception as e:
+        logging.error(f"[Auth] Database lookup error for '{clean_username}': {e}\n{traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database connection error during authentication: {type(e).__name__} - {str(e)}",
+        )
     
     is_valid = False
-    if user:
-        is_valid = await asyncio.to_thread(verify_password, form_data.password, user.hashed_password)
+    if user and user.hashed_password:
+        try:
+            is_valid = await asyncio.to_thread(verify_password, form_data.password, user.hashed_password)
+        except Exception as e:
+            logging.error(f"[Auth] Password verification error for '{clean_username}': {e}")
+            is_valid = False
 
     if not user or not is_valid:
         raise HTTPException(
@@ -52,8 +66,15 @@ async def login_for_access_token(
             detail="Inactive user",
         )
 
-    access_token = create_access_token(subject=str(user.id))
-    return Token(access_token=access_token, token_type="bearer")
+    try:
+        access_token = create_access_token(subject=str(user.id))
+        return Token(access_token=access_token, token_type="bearer")
+    except Exception as e:
+        logging.error(f"[Auth] Token generation error: {e}\n{traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Token creation failure: {type(e).__name__} - {str(e)}",
+        )
 
 
 @router.get("/me", response_model=UserResponse)
