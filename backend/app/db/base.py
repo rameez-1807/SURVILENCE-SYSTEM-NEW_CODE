@@ -20,6 +20,8 @@ def parse_safe_uuid(value):
     try:
         if len(clean_hex) == 32:
             return uuid.UUID(hex=clean_hex)
+        if len(clean_hex) == 28:
+            return uuid.UUID(hex=clean_hex + "0000")
         if len(val_str) == 36:
             return uuid.UUID(val_str)
         # Deterministic UUID for any truncated or non-standard string
