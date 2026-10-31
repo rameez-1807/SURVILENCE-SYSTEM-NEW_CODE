@@ -17,7 +17,7 @@ from app.models import (  # noqa: F401
 )
 from app.models.tenant import TenantStatus
 from app.models.membership import Role
-from sqlalchemy import select
+from sqlalchemy import select, delete
 
 async def init_db_and_seed():
     print("[*] Creating all database tables...")
@@ -25,22 +25,25 @@ async def init_db_and_seed():
         await conn.run_sync(Base.metadata.create_all)
     print("[+] All tables created successfully!")
 
-    # Seed admin user and tenant via SQLAlchemy async session
+    # Cleanly synchronize admin, tenant, and membership
     async with async_session_factory() as session:
         password = 'admin123'
         salt = bcrypt.gensalt()
         hashed = bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
-        tenant_id = uuid.UUID('bb398bec-8429-44db-b9ec-b04c3ac81c36')
         now = datetime.now(timezone.utc)
 
-        # Check / create tenant by name or id
+        print("[*] Cleaning up any stale admin/membership rows...")
+        await session.execute(delete(Membership).where(Membership.role == Role.PLATFORM_ADMIN))
+        await session.execute(delete(User).where(User.email == "admin@example.com"))
+
+        # Check or create default tenant
         tenant_res = await session.execute(
-            select(Tenant).where((Tenant.name == "Default Organization") | (Tenant.id == tenant_id))
+            select(Tenant).where(Tenant.name == "Default Organization")
         )
         tenant = tenant_res.scalar_one_or_none()
         if not tenant:
             tenant = Tenant(
-                id=tenant_id,
+                id=uuid.uuid4(),
                 name="Default Organization",
                 status=TenantStatus.ACTIVE,
                 created_at=now,
@@ -48,51 +51,24 @@ async def init_db_and_seed():
             )
             session.add(tenant)
             await session.flush()
-        else:
-            tenant_id = tenant.id
 
-        result = await session.execute(select(User).where(User.email == "admin@example.com"))
-        existing_user = result.scalar_one_or_none()
-        if existing_user:
-            print("[*] Admin user exists, ensuring fresh password hash and platform_admin membership...")
-            existing_user.hashed_password = hashed
-            existing_user.is_active = True
-            
-            mem_res = await session.execute(select(Membership).where(Membership.user_id == existing_user.id))
-            mem = mem_res.scalar_one_or_none()
-            if not mem:
-                mem = Membership(
-                    id=uuid.uuid4(),
-                    user_id=existing_user.id,
-                    tenant_id=tenant_id,
-                    role=Role.PLATFORM_ADMIN,
-                    created_at=now,
-                    updated_at=now
-                )
-                session.add(mem)
-            await session.commit()
-            print("[+] Admin user and membership verified successfully!")
-            return
-
-        print("[*] Creating admin user (admin@example.com / admin123)...")
-        user_id = uuid.uuid4()
-
-        # Add user
-        user = User(
-            id=user_id,
+        print("[*] Creating clean admin user (admin@example.com / admin123)...")
+        admin_user = User(
+            id=uuid.uuid4(),
             email="admin@example.com",
             hashed_password=hashed,
             is_active=True,
             created_at=now,
             updated_at=now
         )
-        session.add(user)
+        session.add(admin_user)
+        await session.flush()
 
-        # Add membership
+        print("[*] Creating platform_admin membership...")
         membership = Membership(
             id=uuid.uuid4(),
-            user_id=user_id,
-            tenant_id=tenant_id,
+            user_id=admin_user.id,
+            tenant_id=tenant.id,
             role=Role.PLATFORM_ADMIN,
             created_at=now,
             updated_at=now
