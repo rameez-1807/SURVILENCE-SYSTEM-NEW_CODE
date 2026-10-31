@@ -17,13 +17,24 @@ from app.models import (  # noqa: F401
 )
 from app.models.tenant import TenantStatus
 from app.models.membership import Role
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, text
 
 async def init_db_and_seed():
     print("[*] Creating all database tables...")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     print("[+] All tables created successfully!")
+
+    print("[*] Resetting stale auth records cleanly...")
+    async with engine.begin() as conn:
+        try:
+            await conn.execute(text("SET FOREIGN_KEY_CHECKS = 0;"))
+            await conn.execute(text("DELETE FROM memberships;"))
+            await conn.execute(text("DELETE FROM users WHERE email = 'admin@example.com';"))
+            await conn.execute(text("DELETE FROM tenants WHERE name = 'Default Organization';"))
+            await conn.execute(text("SET FOREIGN_KEY_CHECKS = 1;"))
+        except Exception as e:
+            print(f"[!] Clean note: {e}")
 
     # Cleanly synchronize admin, tenant, and membership
     async with async_session_factory() as session:
@@ -32,29 +43,24 @@ async def init_db_and_seed():
         hashed = bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
         now = datetime.now(timezone.utc)
 
-        print("[*] Cleaning up any stale admin/membership rows...")
-        await session.execute(delete(Membership).where(Membership.role == Role.PLATFORM_ADMIN))
-        await session.execute(delete(User).where(User.email == "admin@example.com"))
+        tenant_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        membership_id = uuid.uuid4()
 
-        # Check or create default tenant
-        tenant_res = await session.execute(
-            select(Tenant).where(Tenant.name == "Default Organization")
+        print("[*] Creating clean default tenant...")
+        tenant = Tenant(
+            id=tenant_id,
+            name="Default Organization",
+            status=TenantStatus.ACTIVE,
+            created_at=now,
+            updated_at=now
         )
-        tenant = tenant_res.scalar_one_or_none()
-        if not tenant:
-            tenant = Tenant(
-                id=uuid.uuid4(),
-                name="Default Organization",
-                status=TenantStatus.ACTIVE,
-                created_at=now,
-                updated_at=now
-            )
-            session.add(tenant)
-            await session.flush()
+        session.add(tenant)
+        await session.flush()
 
         print("[*] Creating clean admin user (admin@example.com / admin123)...")
         admin_user = User(
-            id=uuid.uuid4(),
+            id=user_id,
             email="admin@example.com",
             hashed_password=hashed,
             is_active=True,
@@ -66,9 +72,9 @@ async def init_db_and_seed():
 
         print("[*] Creating platform_admin membership...")
         membership = Membership(
-            id=uuid.uuid4(),
-            user_id=admin_user.id,
-            tenant_id=tenant.id,
+            id=membership_id,
+            user_id=user_id,
+            tenant_id=tenant_id,
             role=Role.PLATFORM_ADMIN,
             created_at=now,
             updated_at=now
@@ -76,7 +82,7 @@ async def init_db_and_seed():
         session.add(membership)
 
         await session.commit()
-        print("[+] Database initialized and admin user created successfully!")
+        print("[+] Admin user, tenant, and membership created successfully!")
 
 if __name__ == "__main__":
     asyncio.run(init_db_and_seed())
