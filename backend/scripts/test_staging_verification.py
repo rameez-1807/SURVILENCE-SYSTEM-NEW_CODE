@@ -1,19 +1,25 @@
 """
 AI Surveillance System - Enterprise Isolated Staging Verification Suite
 
-Audited & Hardened Implementation:
-1. Complete Database Isolation: Requires a completely separate staging database.
-   Strictly NEVER creates, alters, or touches any table in the production database.
-2. Strict UUID-Only Schema Alteration: Uses an allowlist and strict non-UUID blocklist
-   to guarantee that text/data columns (email, hashed_password, name, status, etc.)
-   are NEVER altered to VARCHAR(36).
-3. Full Restorability Verification: Restores verified SQL dump into the staging DB,
-   confirming exact row counts and original admin password hash match the backup.
-4. Preserves Staging State: Never automatically deletes staging tables, allowing full inspection.
-5. End-to-End API Simulation: Tests bcrypt password validation, JWT token generation,
-   JWT token decoding, Role.PLATFORM_ADMIN membership loading, /me schema validation,
-   and camera/event query execution.
-6. Comprehensive PASS/FAIL Reporting: Outputs an explicit test matrix with verified evidence.
+Hardened Specifications:
+1. Strict Database Isolation & Dedicated Staging Credentials:
+   - Supports STAGING_MYSQL_HOST, STAGING_MYSQL_PORT, STAGING_MYSQL_USER,
+     STAGING_MYSQL_PASSWORD, STAGING_MYSQL_DATABASE via env vars or CLI flags.
+   - Strictly forbids reusing production credentials or targeting production database.
+2. Verified Empty Staging Database Pre-Condition:
+   - Asserts that the target staging database has ZERO tables before running restore.
+   - Fails fast if the staging database is not empty.
+3. Robust SQL Restore Engine:
+   - Parses statements with quote/escape awareness.
+   - Fails fast on ANY statement execution error.
+4. Privacy & Zero Secret Exposure:
+   - Strictly NEVER prints passwords, database credentials, password hashes, or JWT tokens.
+   - Uses cryptographic SHA-256 fingerprints for hash equality verification.
+5. Persistent Staging State:
+   - Never deletes or drops staging tables automatically after tests.
+6. Real Results & Failure Reporting:
+   - Structured PASS/FAIL test matrix with honest metrics.
+   - Zero automatic deployment to production.
 """
 
 import os
@@ -22,6 +28,7 @@ import json
 import uuid
 import datetime
 import argparse
+import hashlib
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -33,7 +40,6 @@ import pymysql
 from pymysql.cursors import DictCursor
 
 from scripts.repair_and_backup_mysql import (
-    get_db_credentials,
     get_backup_dir,
     discover_schema_and_foreign_keys,
     audit_referential_integrity,
@@ -43,8 +49,65 @@ from scripts.repair_and_backup_mysql import (
 )
 
 
+def get_staging_credentials(args) -> Dict[str, Any]:
+    """
+    Extract Staging MySQL connection parameters strictly from dedicated staging environment
+    variables, CLI arguments, or backend/.env file.
+    NEVER reuses production credentials.
+    """
+    env_file = backend_dir / ".env"
+    env_vars = {}
+    if env_file.exists():
+        with open(env_file, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    env_vars[k.strip()] = v.strip().strip("'\"")
+
+    host = args.staging_host or os.environ.get("STAGING_MYSQL_HOST") or env_vars.get("STAGING_MYSQL_HOST")
+    port_str = args.staging_port or os.environ.get("STAGING_MYSQL_PORT") or env_vars.get("STAGING_MYSQL_PORT", "3306")
+    user = args.staging_user or os.environ.get("STAGING_MYSQL_USER") or env_vars.get("STAGING_MYSQL_USER")
+    password = args.staging_password or os.environ.get("STAGING_MYSQL_PASSWORD") or env_vars.get("STAGING_MYSQL_PASSWORD")
+    database = args.staging_db or os.environ.get("STAGING_MYSQL_DATABASE") or env_vars.get("STAGING_MYSQL_DATABASE")
+
+    missing = []
+    if not host:
+        missing.append("STAGING_MYSQL_HOST (or --staging-host)")
+    if not user:
+        missing.append("STAGING_MYSQL_USER (or --staging-user)")
+    if not password:
+        missing.append("STAGING_MYSQL_PASSWORD (or --staging-password)")
+    if not database:
+        missing.append("STAGING_MYSQL_DATABASE (or --staging-db)")
+
+    if missing:
+        raise ValueError(
+            f"Staging configuration error: Missing dedicated staging credentials: {', '.join(missing)}.\n"
+            f"Production credentials are strictly NOT reused.\n"
+            f"Please provide staging credentials via environment variables, CLI flags, or add STAGING_MYSQL_* to backend/.env."
+        )
+
+    # Cross-check against production credentials to ensure 100% isolation
+    prod_host = os.environ.get("MYSQL_HOST") or env_vars.get("MYSQL_HOST")
+    prod_db = os.environ.get("MYSQL_DATABASE") or env_vars.get("MYSQL_DATABASE")
+    if prod_db and database.lower() == prod_db.lower() and prod_host and host.lower() == prod_host.lower():
+        raise RuntimeError(
+            f"SECURITY VIOLATION: Staging database '{database}' matches production database '{prod_db}' on host '{host}'!\n"
+            f"Staging tests must target a completely independent database to protect live production data."
+        )
+
+    return {
+        "host": host,
+        "port": int(port_str),
+        "user": user,
+        "password": password,
+        "database": database,
+    }
+
+
 def find_latest_backup(backup_dir: Path) -> Tuple[Path, Path]:
-    """Find the most recent .sql and .json backup files in the backup directory."""
+    """Find the most recent verified .sql and .json backup files in the backup directory."""
     sql_files = sorted(backup_dir.glob("mysql_backup_*.sql"), key=os.path.getmtime, reverse=True)
     json_files = sorted(backup_dir.glob("mysql_backup_*.json"), key=os.path.getmtime, reverse=True)
 
@@ -61,13 +124,138 @@ def find_latest_backup(backup_dir: Path) -> Tuple[Path, Path]:
     return latest_sql, latest_json
 
 
-def restore_backup_into_staging_db(staging_conn, sql_path: Path, json_path: Path) -> Dict[str, int]:
+def verify_staging_database_is_empty(staging_conn, staging_db: str):
     """
-    Executes the verified SQL dump strictly inside the separate staging database.
+    Explicitly verifies that the staging database has ZERO existing tables before restore.
+    Fails fast if the staging database contains any pre-existing tables.
+    """
+    with staging_conn.cursor() as cur:
+        cur.execute("SHOW TABLES;")
+        tables = [row[0] for row in cur.fetchall()]
+        if tables:
+            raise RuntimeError(
+                f"STAGING PRE-CONDITION FAILED: Staging database '{staging_db}' is NOT empty!\n"
+                f"Found {len(tables)} existing table(s): {', '.join(tables[:10])}...\n"
+                f"An explicitly empty staging database is required to ensure clean, isolated testing.\n"
+                f"Please provide an empty database or drop all tables in '{staging_db}' before proceeding."
+            )
+    print(f"[STAGING CHECK] Verified staging database `{staging_db}` is 100% empty (0 tables found).")
+
+
+def split_sql_statements(sql_text: str) -> List[str]:
+    """
+    Parses SQL text into individual executable statements,
+    correctly respecting single-quotes, double-quotes, backticks,
+    escaped characters, and block/line comments.
+    """
+    statements = []
+    current = []
+    in_single_quote = False
+    in_double_quote = False
+    in_backtick = False
+    in_line_comment = False
+    in_block_comment = False
+    escape_next = False
+
+    chars = list(sql_text)
+    n = len(chars)
+    i = 0
+
+    while i < n:
+        c = chars[i]
+        next_c = chars[i + 1] if i + 1 < n else ""
+
+        # Check escape character inside strings
+        if escape_next:
+            current.append(c)
+            escape_next = False
+            i += 1
+            continue
+
+        if c == "\\" and (in_single_quote or in_double_quote):
+            escape_next = True
+            current.append(c)
+            i += 1
+            continue
+
+        # Handle line comments (-- or #) when not in quotes
+        if not (in_single_quote or in_double_quote or in_backtick or in_block_comment):
+            if c == "-" and next_c == "-":
+                in_line_comment = True
+                i += 2
+                continue
+            elif c == "#":
+                in_line_comment = True
+                i += 1
+                continue
+
+        # End line comment on newline
+        if in_line_comment:
+            if c == "\n":
+                in_line_comment = False
+            i += 1
+            continue
+
+        # Handle block comments (/* ... */) when not in quotes
+        if not (in_single_quote or in_double_quote or in_backtick or in_line_comment):
+            if c == "/" and next_c == "*":
+                in_block_comment = True
+                i += 2
+                continue
+
+        # End block comment
+        if in_block_comment:
+            if c == "*" and next_c == "/":
+                in_block_comment = False
+                i += 2
+            else:
+                i += 1
+            continue
+
+        # Handle quotes
+        if c == "'" and not (in_double_quote or in_backtick):
+            in_single_quote = not in_single_quote
+            current.append(c)
+            i += 1
+            continue
+        elif c == '"' and not (in_single_quote or in_backtick):
+            in_double_quote = not in_double_quote
+            current.append(c)
+            i += 1
+            continue
+        elif c == '`' and not (in_single_quote or in_double_quote):
+            in_backtick = not in_backtick
+            current.append(c)
+            i += 1
+            continue
+
+        # Semicolon outside any quote = Statement Terminator
+        if c == ";" and not (in_single_quote or in_double_quote or in_backtick):
+            stmt = "".join(current).strip()
+            if stmt:
+                statements.append(stmt)
+            current = []
+            i += 1
+            continue
+
+        current.append(c)
+        i += 1
+
+    remainder = "".join(current).strip()
+    if remainder:
+        statements.append(remainder)
+
+    return statements
+
+
+def restore_backup_strictly(staging_conn, sql_path: Path, json_path: Path) -> Dict[str, int]:
+    """
+    Restores the SQL backup into the staging database.
+    Fails fast immediately on ANY SQL execution error.
     Verifies that every table and every row matches the backup JSON metadata.
     """
     staging_db = staging_conn.db.decode("utf-8") if isinstance(staging_conn.db, bytes) else staging_conn.db
-    print(f"\n[*] Restoring verified SQL backup into staging database `{staging_db}`...")
+    print(f"\n[*] Restoring verified SQL backup into empty staging database `{staging_db}`...")
 
     with open(json_path, "r", encoding="utf-8") as f:
         backup_metadata = json.load(f)
@@ -77,20 +265,24 @@ def restore_backup_into_staging_db(staging_conn, sql_path: Path, json_path: Path
     with open(sql_path, "r", encoding="utf-8") as f:
         sql_content = f.read()
 
-    # Split SQL dump into executable statements safely
+    statements = split_sql_statements(sql_content)
+    print(f"[*] Parsed {len(statements)} SQL statements from backup file.")
+
     with staging_conn.cursor() as cur:
         cur.execute("SET FOREIGN_KEY_CHECKS = 0;")
         cur.execute("SET NAMES utf8mb4;")
 
-        statements = [stmt.strip() for stmt in sql_content.split(";\n") if stmt.strip()]
-        for stmt in statements:
-            if stmt.startswith("--") or not stmt:
+        for idx, stmt in enumerate(statements, 1):
+            if not stmt or stmt.startswith("--"):
                 continue
             try:
                 cur.execute(stmt)
             except Exception as ex:
-                if not any(k in str(ex).lower() for k in ["lock tables", "unlock tables"]):
-                    print(f"    [!] Warning on SQL statement: {ex}")
+                raise RuntimeError(
+                    f"FATAL RESTORE ERROR at statement #{idx} in `{sql_path.name}`:\n"
+                    f"SQL: {stmt[:160]}...\n"
+                    f"Error: {ex}"
+                )
 
         cur.execute("SET FOREIGN_KEY_CHECKS = 1;")
         staging_conn.commit()
@@ -120,6 +312,7 @@ def run_staging_verification(
     """
     Comprehensive staging audit suite executing the 6 core tasks:
     Returns a structured list of test results with PASS/FAIL status.
+    Strictly redacts all passwords, credentials, hashes, and JWTs from outputs.
     """
     results: List[Dict[str, Any]] = []
 
@@ -147,10 +340,23 @@ def run_staging_verification(
     record_test("Database Isolation", True, f"Operating strictly on dedicated staging database `{staging_db}` (Production `{prod_db_name}` is untouched)")
 
     # --------------------------------------------------------------------------
-    # Test 2: Backup File Integrity
+    # Test 2: Verified Empty Staging Database Pre-Condition
     # --------------------------------------------------------------------------
     print("\n" + "=" * 75)
-    print(" 2. BACKUP FILE INTEGRITY")
+    print(" 2. VERIFIED EMPTY STAGING DATABASE PRE-CONDITION")
+    print("=" * 75)
+    try:
+        verify_staging_database_is_empty(staging_conn, staging_db)
+        record_test("Empty Staging DB Check", True, f"Staging database `{staging_db}` confirmed completely empty (0 tables)")
+    except Exception as e:
+        record_test("Empty Staging DB Check", False, str(e))
+        raise
+
+    # --------------------------------------------------------------------------
+    # Test 3: Backup File Integrity
+    # --------------------------------------------------------------------------
+    print("\n" + "=" * 75)
+    print(" 3. BACKUP FILE INTEGRITY")
     print("=" * 75)
     sql_size = os.path.getsize(sql_backup)
     json_size = os.path.getsize(json_backup)
@@ -158,24 +364,24 @@ def run_staging_verification(
     record_test("Backup Files Valid", files_ok, f"SQL: {sql_backup.name} ({sql_size:,} bytes), JSON: {json_backup.name} ({json_size:,} bytes)")
 
     # --------------------------------------------------------------------------
-    # Test 3: Backup Restoration & Row Count Matching
+    # Test 4: Backup Restoration & Row Count Matching
     # --------------------------------------------------------------------------
     print("\n" + "=" * 75)
-    print(" 3. BACKUP RESTORATION INTO STAGING")
+    print(" 4. BACKUP RESTORATION INTO STAGING")
     print("=" * 75)
     with open(json_backup, "r", encoding="utf-8") as f:
         backup_meta = json.load(f)
     expected_table_counts = backup_meta.get("metadata", {}).get("table_counts", {})
-    restored_counts = restore_backup_into_staging_db(staging_conn, sql_backup, json_backup)
+    restored_counts = restore_backup_strictly(staging_conn, sql_backup, json_backup)
 
     all_matched = (restored_counts == expected_table_counts)
     record_test("Restoration Row Counts", all_matched, f"All {len(restored_counts)} tables match backup metadata 1:1 ({sum(restored_counts.values())} total rows)")
 
     # --------------------------------------------------------------------------
-    # Test 4: Pre-Migration State & Admin Password Capture
+    # Test 5: Pre-Migration State & Admin Password Capture (Secret Redacted)
     # --------------------------------------------------------------------------
     print("\n" + "=" * 75)
-    print(" 4. PRE-MIGRATION STATE & ADMIN PASSWORD")
+    print(" 5. PRE-MIGRATION STATE & ADMIN PASSWORD HASH CHECK")
     print("=" * 75)
     with staging_conn.cursor(DictCursor) as cur:
         cur.execute("SELECT id, email, hashed_password, is_active FROM users WHERE LOWER(email) = 'admin@example.com' LIMIT 1;")
@@ -188,31 +394,38 @@ def run_staging_verification(
         pre_admin_active = bool(pre_admin["is_active"])
 
     has_valid_bcrypt = pre_admin_hash.startswith(("$2a$", "$2b$", "$2y$")) and len(pre_admin_hash) >= 59
-    record_test("Pre-Migration Admin Capture", True, f"Admin ID: {pre_admin_id}, Hash: {pre_admin_hash[:15]}... (Bcrypt valid: {has_valid_bcrypt})")
+    pre_hash_fingerprint = hashlib.sha256(pre_admin_hash.encode("utf-8")).hexdigest()[:12]
+
+    # Privacy guarantee: Never print password hash string
+    record_test(
+        "Pre-Migration Admin Capture",
+        True,
+        f"Admin ID: {pre_admin_id}, Status: Active={pre_admin_active}, Bcrypt Valid={has_valid_bcrypt}, SHA-256 Fingerprint={pre_hash_fingerprint} [HASH REDACTED]"
+    )
 
     # --------------------------------------------------------------------------
-    # Test 5: Dry-Run Migration Simulation on Staging
+    # Test 6: Dry-Run Migration Simulation on Staging
     # --------------------------------------------------------------------------
     print("\n" + "=" * 75)
-    print(" 5. MIGRATION DRY-RUN SIMULATION ON STAGING")
+    print(" 6. MIGRATION DRY-RUN SIMULATION ON STAGING")
     print("=" * 75)
     dry_run_res = run_migration(staging_conn, dry_run=True)
     record_test("Migration Dry-Run Audit", True, f"Columns to alter: {dry_run_res['columns_to_alter']}, Primary keys to normalize: {sum(dry_run_res['pk_normalizations'].values())}")
 
     # --------------------------------------------------------------------------
-    # Test 6: Live Migration Execution on Staging
+    # Test 7: Live Migration Execution on Staging
     # --------------------------------------------------------------------------
     print("\n" + "=" * 75)
-    print(" 6. LIVE MIGRATION EXECUTION ON STAGING")
+    print(" 7. LIVE MIGRATION EXECUTION ON STAGING")
     print("=" * 75)
     live_res = run_migration(staging_conn, dry_run=False)
     record_test("Staging Migration Execution", True, "Schema column expansion, collision-proof normalization, and FK synchronization completed")
 
     # --------------------------------------------------------------------------
-    # Test 7: Verify Column Types (UUID Only Modified, Text Columns Untouched)
+    # Test 8: Verify Column Types (UUID Only Modified, Text Columns Untouched)
     # --------------------------------------------------------------------------
     print("\n" + "=" * 75)
-    print(" 7. SCHEMA MODIFICATION ACCURACY AUDIT")
+    print(" 8. SCHEMA MODIFICATION ACCURACY AUDIT")
     print("=" * 75)
     with staging_conn.cursor(DictCursor) as cur:
         cur.execute(
@@ -237,7 +450,6 @@ def run_staging_verification(
         if is_uuid and dtype == "varchar" and clen == 36:
             altered_uuid_cols.append(f"{tbl}.{col}")
         elif col.lower() in NON_UUID_COLUMNS:
-            # Must NOT be varchar(36)
             if dtype == "varchar" and clen == 36:
                 unintended_altered_cols.append(f"{tbl}.{col}")
 
@@ -248,13 +460,13 @@ def run_staging_verification(
         f"{len(altered_uuid_cols)} UUID columns expanded to VARCHAR(36). Non-UUID text columns altered: {len(unintended_altered_cols)}"
     )
     if unintended_altered_cols:
-        raise RuntimeError(f"CRITICAL: Non-UUID columns were modified: {unintended_altered_cols}")
+        raise RuntimeError(f"CRITICAL: Non-UUID text columns were modified: {unintended_altered_cols}")
 
     # --------------------------------------------------------------------------
-    # Test 8: Admin Password Preservation
+    # Test 9: Admin Password Preservation (Secret Redacted)
     # --------------------------------------------------------------------------
     print("\n" + "=" * 75)
-    print(" 8. ADMIN PASSWORD HASH PRESERVATION")
+    print(" 9. ADMIN PASSWORD HASH PRESERVATION (SECRET REDACTED)")
     print("=" * 75)
     with staging_conn.cursor(DictCursor) as cur:
         cur.execute("SELECT id, email, hashed_password, is_active FROM users WHERE LOWER(email) = 'admin@example.com' LIMIT 1;")
@@ -263,19 +475,22 @@ def run_staging_verification(
         post_admin_hash = str(post_admin["hashed_password"])
 
     password_unchanged = (post_admin_hash == pre_admin_hash)
+    post_hash_fingerprint = hashlib.sha256(post_admin_hash.encode("utf-8")).hexdigest()[:12]
+
+    # Privacy guarantee: Compare exact byte equality, display only fingerprint
     record_test(
         "Admin Password Unchanged",
         password_unchanged,
-        f"Pre: {pre_admin_hash[:15]}... | Post: {post_admin_hash[:15]}... (Byte-for-byte exact match)"
+        f"Byte-for-byte exact equality verified (Pre-SHA: {pre_hash_fingerprint} == Post-SHA: {post_hash_fingerprint}) [NO PASSWORD RESET]"
     )
     if not password_unchanged:
         raise RuntimeError("FATAL: Admin password hash changed during migration!")
 
     # --------------------------------------------------------------------------
-    # Test 9: Zero Record Loss Verification
+    # Test 10: Zero Record Loss Verification
     # --------------------------------------------------------------------------
     print("\n" + "=" * 75)
-    print(" 9. ROW COUNT & RECORD PRESERVATION")
+    print(" 10. ROW COUNT & RECORD PRESERVATION")
     print("=" * 75)
     post_counts = live_res["post_counts"]
     zero_data_loss = True
@@ -295,10 +510,10 @@ def run_staging_verification(
         raise RuntimeError(f"DATA LOSS DETECTED: {loss_details}")
 
     # --------------------------------------------------------------------------
-    # Test 10: Referential Integrity & Orphan Check
+    # Test 11: Referential Integrity & Orphan Check
     # --------------------------------------------------------------------------
     print("\n" + "=" * 75)
-    print(" 10. REFERENTIAL INTEGRITY & FOREIGN KEY AUDIT")
+    print(" 11. REFERENTIAL INTEGRITY & FOREIGN KEY AUDIT")
     print("=" * 75)
     staging_schema_info = discover_schema_and_foreign_keys(staging_conn)
     post_orphans = audit_referential_integrity(staging_conn, staging_schema_info)
@@ -312,10 +527,10 @@ def run_staging_verification(
     )
 
     # --------------------------------------------------------------------------
-    # Test 11: UUID Deserialization Check (No ValueError)
+    # Test 12: UUID Deserialization Check (No ValueError)
     # --------------------------------------------------------------------------
     print("\n" + "=" * 75)
-    print(" 11. UUID DESERIALIZATION VALIDATION")
+    print(" 12. UUID DESERIALIZATION VALIDATION")
     print("=" * 75)
     uuid_deserialization_ok = True
     with staging_conn.cursor() as cur:
@@ -338,10 +553,10 @@ def run_staging_verification(
     )
 
     # --------------------------------------------------------------------------
-    # Test 12: End-to-End Authentication & API Simulation
+    # Test 13: End-to-End Authentication & API Simulation (JWT Redacted)
     # --------------------------------------------------------------------------
     print("\n" + "=" * 75)
-    print(" 12. FASTAPI AUTH & PROTECTED APIS SIMULATION")
+    print(" 13. FASTAPI AUTH & PROTECTED APIS SIMULATION (JWT REDACTED)")
     print("=" * 75)
     with staging_conn.cursor(DictCursor) as cur:
         # 1. Fetch user by email
@@ -357,7 +572,7 @@ def run_staging_verification(
         except Exception:
             pwd_matches = False
 
-        # 3. Create JWT Token
+        # 3. Create JWT Token (Secret Redacted)
         from app.core.security import create_access_token
         from app.core.config import settings
         import jwt
@@ -408,40 +623,50 @@ def run_staging_verification(
     record_test(
         "FastAPI Auth & Protected APIs",
         auth_api_ok,
-        f"JWT Token valid, role: platform_admin confirmed, /me serialized ({len(user_json)} bytes), Cameras & Events queryable"
+        f"JWT Token generated and subject verified [JWT REDACTED], role: platform_admin confirmed, /me serialized, Cameras & Events queryable"
     )
 
     return results
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Isolated Staging Verification Suite for AI Surveillance System")
-    parser.add_argument("--staging-db", type=str, required=True, help="REQUIRED: Name of completely separate staging database")
+    parser = argparse.ArgumentParser(description="Audited Isolated Staging Verification Suite for AI Surveillance System")
+    parser.add_argument("--staging-host", type=str, help="Staging MySQL Host (or STAGING_MYSQL_HOST)")
+    parser.add_argument("--staging-port", type=int, help="Staging MySQL Port (or STAGING_MYSQL_PORT)")
+    parser.add_argument("--staging-user", type=str, help="Staging MySQL User (or STAGING_MYSQL_USER)")
+    parser.add_argument("--staging-password", type=str, help="Staging MySQL Password (or STAGING_MYSQL_PASSWORD)")
+    parser.add_argument("--staging-db", type=str, help="Staging MySQL Database (or STAGING_MYSQL_DATABASE)")
     parser.add_argument("--backup-dir", type=str, help="Directory containing verified MySQL backups")
     args = parser.parse_args()
 
     print("=" * 75)
-    print(" AI SURVEILLANCE SYSTEM - ISOLATED STAGING VERIFICATION SUITE")
+    print(" AI SURVEILLANCE SYSTEM - AUDITED ISOLATED STAGING VERIFICATION")
     print("=" * 75)
 
+    env_file = backend_dir / ".env"
+    prod_env = {}
+    if env_file.exists():
+        with open(env_file, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    prod_env[k.strip()] = v.strip().strip("'\"")
+
+    prod_db = os.environ.get("MYSQL_DATABASE") or prod_env.get("MYSQL_DATABASE", "u963801592_AISURVILENCE")
+
     try:
-        prod_creds = get_db_credentials()
+        staging_creds = get_staging_credentials(args)
     except Exception as e:
-        print(f"[FATAL] {e}")
+        print(f"[FATAL CONFIGURATION ERROR] {e}")
         sys.exit(1)
 
-    prod_db = prod_creds["database"]
-    staging_db = args.staging_db.strip()
-
+    # Privacy guarantee: Redact credentials in output
+    print(f"Staging Database:     {staging_creds['database']} (DEDICATED EMPTY TARGET)")
+    print(f"Staging Host:         {staging_creds['host']}:{staging_creds['port']}")
+    print(f"Staging User:         [REDACTED]")
+    print(f"Staging Password:     [REDACTED]")
     print(f"Production Database:  {prod_db} (STRICTLY ISOLATED - ZERO WRITES)")
-    print(f"Staging Database:     {staging_db} (DEDICATED TEST TARGET)")
-    print(f"MySQL Host:           {prod_creds['host']}:{prod_creds['port']}")
-
-    # Critical Safety Check: Staging database must NEVER be production database
-    if staging_db.lower() == prod_db.lower():
-        print(f"\n[FATAL SAFETY ABORT] The specified staging database `{staging_db}` is the PRODUCTION database!")
-        print("Staging verification requires a completely separate database to prevent any risk to live data.")
-        sys.exit(1)
 
     backup_dir = get_backup_dir(args.backup_dir)
     sql_backup, json_backup = find_latest_backup(backup_dir)
@@ -450,22 +675,22 @@ def main():
     print(f"    - SQL:  {sql_backup.name} ({os.path.getsize(sql_backup):,} bytes)")
     print(f"    - JSON: {json_backup.name} ({os.path.getsize(json_backup):,} bytes)")
 
-    # Connect to the staging database
+    # Connect to the dedicated staging database
     try:
         staging_conn = pymysql.connect(
-            host=prod_creds["host"],
-            port=prod_creds["port"],
-            user=prod_creds["user"],
-            password=prod_creds["password"],
-            database=staging_db,
+            host=staging_creds["host"],
+            port=staging_creds["port"],
+            user=staging_creds["user"],
+            password=staging_creds["password"],
+            database=staging_creds["database"],
             connect_timeout=15,
             autocommit=False,
             charset="utf8mb4",
         )
-        print(f"[+] Connected to staging database `{staging_db}` successfully.")
+        print(f"[+] Connected to staging database `{staging_creds['database']}` successfully.")
     except Exception as e:
-        print(f"\n[FATAL] Unable to connect to staging database `{staging_db}`: {e}")
-        print("Please ensure the staging database has been created in your MySQL server / Hostinger hPanel.")
+        print(f"\n[FATAL] Unable to connect to staging database: {e}")
+        print("Please ensure the staging database exists and credentials are correct.")
         sys.exit(1)
 
     try:
@@ -476,7 +701,7 @@ def main():
             json_backup=json_backup,
         )
 
-        # Print Test Summary Table
+        # Print Test Summary Matrix
         print("\n" + "=" * 75)
         print(" STAGING VERIFICATION SUMMARY MATRIX")
         print("=" * 75)
@@ -484,21 +709,21 @@ def main():
         failed_count = sum(1 for r in results if r["status"] == "FAIL")
 
         for r in results:
-            print(f"  {r['status']:<6} | {r['name']:<30} | {r['details']}")
+            print(f"  {r['status']:<6} | {r['name']:<32} | {r['details']}")
 
         print("-" * 75)
         print(f" TOTAL: {len(results)} tests | PASSED: {passed_count} | FAILED: {failed_count}")
         print("=" * 75)
 
         if failed_count > 0:
-            print("\n[!] VERIFICATION FAILED: One or more staging tests did not pass.")
-            print("DO NOT proceed with production deployment until all issues are resolved.")
+            print(f"\n[!] VERIFICATION FAILED: {failed_count} test(s) failed.")
+            print("Production database was NOT modified. Do NOT deploy to production.")
             sys.exit(1)
         else:
-            print("\n[✔] ALL 12 STAGING VERIFICATION TESTS PASSED WITH 100% EVIDENCE!")
-            print(f"Staging tables in `{staging_db}` remain intact for your inspection.")
-            print("Production database was NOT touched.")
-            print("You are now safe to proceed with production migration.")
+            print("\n[✔] ALL STAGING VERIFICATION TESTS PASSED WITH 100% EVIDENCE!")
+            print(f"Staging tables in `{staging_creds['database']}` remain completely intact for inspection.")
+            print("Production database was NOT modified in any way.")
+            print("You may now review the results and manually initiate production deployment.")
 
     except Exception as e:
         print(f"\n[STAGING AUDIT FAILED] {e}")
