@@ -267,10 +267,58 @@ def execute_full_backup(conn, backup_dir: Path) -> Tuple[Path, Path]:
 # PHASE 2: DYNAMIC SCHEMA & RELATIONSHIP DISCOVERY
 # ==============================================================================
 
+NON_UUID_COLUMNS = {
+    "email", "hashed_password", "password", "name", "full_name",
+    "status", "severity", "state", "previous_state", "new_state",
+    "event_type", "model_id", "model_version", "evidence_reference",
+    "dedupe_key", "reason", "department", "designation", "employee_id",
+    "camera_name", "location_spot", "number_plate", "vehicle_type",
+    "timezone", "address_json", "polygon_points", "face_encoding",
+    "zone_type", "detection_class", "role", "notes", "category",
+    "confidence", "is_active", "enabled", "alert_on_entry", "alert_on_loiter",
+    "loiter_seconds", "version", "skip", "limit"
+}
+
+KNOWN_UUID_COLUMNS = {
+    ("tenants", "id"),
+    ("users", "id"),
+    ("memberships", "id"),
+    ("memberships", "user_id"),
+    ("memberships", "tenant_id"),
+    ("sites", "id"),
+    ("sites", "tenant_id"),
+    ("cameras", "id"),
+    ("cameras", "tenant_id"),
+    ("cameras", "site_id"),
+    ("detection_zones", "id"),
+    ("detection_zones", "camera_id"),
+    ("detection_zones", "tenant_id"),
+    ("detection_zones", "site_id"),
+    ("rules", "id"),
+    ("rules", "tenant_id"),
+    ("rules", "site_id"),
+    ("events", "id"),
+    ("events", "tenant_id"),
+    ("events", "site_id"),
+    ("events", "camera_id"),
+    ("events", "rule_id"),
+    ("event_audits", "id"),
+    ("event_audits", "event_id"),
+    ("event_audits", "user_id"),
+    ("employees", "id"),
+    ("attendance_records", "id"),
+    ("attendance_records", "employee_uuid"),
+    ("recognition_history", "id"),
+    ("recognition_history", "employee_uuid"),
+    ("vehicle_records", "id"),
+}
+
+
 def discover_schema_and_foreign_keys(conn) -> Dict[str, Any]:
     """
     Dynamically discover all tables, columns, primary keys, and foreign keys
     directly from information_schema without hardcoded assumptions.
+    Strictly distinguishes UUID columns from non-UUID text columns.
     """
     db_name = conn.db.decode("utf-8") if isinstance(conn.db, bytes) else conn.db
 
@@ -310,11 +358,13 @@ def discover_schema_and_foreign_keys(conn) -> Dict[str, Any]:
             if is_pk:
                 schema_info["primary_keys"][tbl] = cname
 
-            # Check if column stores UUID
-            dtype = col["DATA_TYPE"].lower()
-            length = col["CHARACTER_MAXIMUM_LENGTH"] or 0
-            if (dtype in ("char", "varchar") and length in (32, 36)) or ("uuid" in cname.lower()) or (is_pk and cname.lower() == "id"):
-                schema_info["uuid_columns"][tbl].add(cname)
+            # STRICT UUID check: Must NOT be in NON_UUID_COLUMNS, and must match known UUID column or suffix
+            cname_lower = cname.lower()
+            if cname_lower not in NON_UUID_COLUMNS:
+                if (tbl, cname) in KNOWN_UUID_COLUMNS or cname_lower.endswith("_uuid") or cname_lower == "uuid":
+                    schema_info["uuid_columns"][tbl].add(cname)
+                elif is_pk and cname_lower == "id" and col["DATA_TYPE"].lower() in ("char", "varchar"):
+                    schema_info["uuid_columns"][tbl].add(cname)
 
         # Discover all actual Foreign Keys from information_schema
         cur.execute(
@@ -334,20 +384,23 @@ def discover_schema_and_foreign_keys(conn) -> Dict[str, Any]:
         )
         for fk in cur.fetchall():
             child_tbl = fk["child_table"]
+            fk_col = fk["fk_column"]
+            parent_tbl = fk["parent_table"]
+            parent_col = fk["parent_column"]
+
             if child_tbl not in schema_info["foreign_keys"]:
                 schema_info["foreign_keys"][child_tbl] = []
 
             schema_info["foreign_keys"][child_tbl].append({
-                "fk_column": fk["fk_column"],
-                "parent_table": fk["parent_table"],
-                "parent_column": fk["parent_column"],
+                "fk_column": fk_col,
+                "parent_table": parent_tbl,
+                "parent_column": parent_col,
                 "constraint_name": fk["constraint_name"],
             })
-            # Ensure foreign key column is registered as UUID column if parent is UUID
-            parent_tbl = fk["parent_table"]
-            parent_col = fk["parent_column"]
+            # Ensure foreign key column is registered as UUID column if parent is UUID and not in blocklist
             if parent_col in schema_info["uuid_columns"].get(parent_tbl, set()):
-                schema_info["uuid_columns"][child_tbl].add(fk["fk_column"])
+                if fk_col.lower() not in NON_UUID_COLUMNS:
+                    schema_info["uuid_columns"][child_tbl].add(fk_col)
 
     return schema_info
 
