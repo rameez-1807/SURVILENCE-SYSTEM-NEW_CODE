@@ -124,6 +124,7 @@ export default function Login() {
                   <input
                     type="password"
                     required
+                    autoComplete="current-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="w-full bg-[#0a0f1d]/90 border border-border/80 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-text-muted/50 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500 transition-all font-mono"
@@ -155,16 +156,30 @@ export default function Login() {
           {/* Demo quick credential helper */}
           <div className="mt-5 pt-4 border-t border-border/60 flex items-center justify-between text-[11px] text-text-muted font-mono">
             <span>DEMO CREDENTIALS:</span>
-            <button
-              type="button"
-              onClick={() => {
-                setEmail('admin@example.com');
-                setPassword('admin123');
-              }}
-              className="text-cyan-400 hover:text-cyan-300 underline underline-offset-2 transition-colors"
-            >
-              admin / admin123
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail('admin@example.com');
+                  setPassword('Admin#Surv2026!');
+                }}
+                className="text-cyan-400 hover:text-cyan-300 underline underline-offset-2 transition-colors font-bold"
+                title="Click to fill secure unbreached passkey"
+              >
+                Admin#Surv2026!
+              </button>
+              <span className="text-text-muted/50">|</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail('admin@example.com');
+                  setPassword('admin123');
+                }}
+                className="text-text-muted hover:text-text underline underline-offset-2 transition-colors"
+              >
+                admin123
+              </button>
+            </div>
           </div>
         </div>
         
