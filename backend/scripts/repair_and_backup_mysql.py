@@ -582,14 +582,66 @@ def run_migration(conn, dry_run: bool = False) -> Dict[str, Any]:
     # LIVE EXECUTION
     # ==========================================================================
     with conn.cursor() as cur:
-        # Note: In MySQL, ALTER TABLE causes an implicit COMMIT.
-        # We perform schema alterations first, while foreign keys are temporarily disabled.
+        # MySQL 8 / Hostinger MySQL blocks ALTER TABLE on columns referenced by
+        # foreign key constraints (Error 1832) even with FOREIGN_KEY_CHECKS = 0.
+        # Solution: Explicitly DROP all FK constraints first, ALTER columns,
+        # then re-ADD all FK constraints.
         print("\n[*] Applying schema column alterations...")
         cur.execute("SET FOREIGN_KEY_CHECKS = 0;")
 
+        # Step A: Discover and DROP all foreign key constraints before ALTER
+        db_name = conn.db.decode("utf-8") if isinstance(conn.db, bytes) else conn.db
+        cur.execute(
+            """
+            SELECT CONSTRAINT_NAME, TABLE_NAME
+            FROM information_schema.TABLE_CONSTRAINTS
+            WHERE TABLE_SCHEMA = %s AND CONSTRAINT_TYPE = 'FOREIGN KEY'
+            ORDER BY TABLE_NAME;
+            """,
+            (db_name,),
+        )
+        fk_constraints = cur.fetchall()
+        dropped_fks = []
+
+        # Capture full FK definitions before dropping so we can re-create them exactly
+        for fk_row in fk_constraints:
+            constraint_name = fk_row[0]
+            child_table = fk_row[1]
+
+            # Get FK column details from information_schema
+            cur.execute(
+                """
+                SELECT COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+                FROM information_schema.KEY_COLUMN_USAGE
+                WHERE TABLE_SCHEMA = %s AND CONSTRAINT_NAME = %s AND TABLE_NAME = %s
+                  AND REFERENCED_TABLE_NAME IS NOT NULL
+                LIMIT 1;
+                """,
+                (db_name, constraint_name, child_table),
+            )
+            fk_detail = cur.fetchone()
+            if fk_detail:
+                dropped_fks.append({
+                    "constraint_name": constraint_name,
+                    "child_table": child_table,
+                    "fk_column": fk_detail[0],
+                    "parent_table": fk_detail[1],
+                    "parent_column": fk_detail[2],
+                })
+                try:
+                    cur.execute(f"ALTER TABLE `{child_table}` DROP FOREIGN KEY `{constraint_name}`;")
+                except Exception as drop_err:
+                    print(f"    [!] Warning: Could not drop FK `{constraint_name}` on `{child_table}`: {drop_err}")
+
+        if dropped_fks:
+            print(f"[+] Temporarily dropped {len(dropped_fks)} foreign key constraints for safe ALTER.")
+        else:
+            print("[*] No foreign key constraints to drop.")
+
+        # Step B: Now ALTER all UUID columns safely (no FK blocking)
         for tbl, cname, nullability, _ in columns_to_alter:
             cur.execute(f"ALTER TABLE `{tbl}` MODIFY COLUMN `{cname}` VARCHAR(36) {nullability};")
-        print("[+] All UUID columns successfully altered to VARCHAR(36).")
+        print(f"[+] All {len(columns_to_alter)} UUID columns successfully altered to VARCHAR(36).")
 
         # Execute Primary Key updates
         print("\n[*] Updating Primary Keys in parent tables...")
@@ -665,6 +717,22 @@ def run_migration(conn, dry_run: bool = False) -> Dict[str, Any]:
                 "VALUES (%s, %s, %s, 'platform_admin', NOW(), NOW());",
                 (new_mid, admin_uid, default_tid),
             )
+
+        # Step C: Re-ADD all dropped foreign key constraints
+        if dropped_fks:
+            print(f"\n[*] Re-adding {len(dropped_fks)} foreign key constraints...")
+            for fk_info in dropped_fks:
+                try:
+                    cur.execute(
+                        f"ALTER TABLE `{fk_info['child_table']}` "
+                        f"ADD CONSTRAINT `{fk_info['constraint_name']}` "
+                        f"FOREIGN KEY (`{fk_info['fk_column']}`) "
+                        f"REFERENCES `{fk_info['parent_table']}` (`{fk_info['parent_column']}`);"
+                    )
+                except Exception as re_add_err:
+                    # Non-fatal: FK might already exist or have naming conflict
+                    print(f"    [!] Warning: Could not re-add FK `{fk_info['constraint_name']}`: {re_add_err}")
+            print(f"[+] Foreign key constraints restoration completed.")
 
         # Re-enable foreign key checks and commit
         cur.execute("SET FOREIGN_KEY_CHECKS = 1;")
