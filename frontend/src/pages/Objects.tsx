@@ -494,7 +494,7 @@ export default function Objects() {
           drawLiveOverlay(dets, video.videoWidth, video.videoHeight);
           if (autoSave) {
             for (const name of Object.keys(counts)) {
-              if (Date.now() - (savedAt.get(name) || 0) < 30000) continue;
+              if (Date.now() - (savedAt.get(name) || 0) < 5000) continue;
               savedAt.set(name, Date.now());
               const detection = dets.find(d => d.name === name)!;
               void api.post('/events/detect-object', {
@@ -645,6 +645,7 @@ export default function Objects() {
           // If new confirmed tracks were persisted to database, notify user briefly
           if (data.new_confirmed && data.new_confirmed.length > 0) {
             const names = data.new_confirmed.map((c: any) => `#${c.track_id} ${c.class_name}`).join(', ');
+            void fetchDetections();
             setSaveStatus(`✓ Auto-saved tracked object: ${names}`);
             setTimeout(() => setSaveStatus(null), 3500);
           }
@@ -860,6 +861,10 @@ export default function Objects() {
 
   useEffect(() => {
     fetchDetections();
+    const interval = setInterval(() => {
+      fetchDetections();
+    }, 4000);
+    return () => clearInterval(interval);
   }, [fetchDetections]);
 
   // Clear all object history records from database
@@ -959,7 +964,7 @@ export default function Objects() {
         evidence_reference: `Scanned: ${label.toUpperCase()} (${Math.round(score * 100)}% Match)`
       });
 
-      setSaveStatus(`✓ Saved '${label}' permanently to SQLite DB`);
+      setSaveStatus(`✓ Saved '${label}' permanently to MySQL DB`);
       setTimeout(() => setSaveStatus(null), 3500);
       
       // Refresh detection history table & stats
@@ -1321,7 +1326,9 @@ export default function Objects() {
               announceObjectName(top.label, top.score);
 
               if (autoSave) {
-                saveObjectDetection(top.label, top.score, `Uploaded Image (${file.name})`, top.isLlmVerified, top.needsReview);
+                detectedList.forEach((item) => {
+                  saveObjectDetection(item.label, item.score, `Uploaded Image (${file.name})`, item.isLlmVerified, item.needsReview);
+                });
               }
             }
           } catch (apiErr) {
@@ -1374,7 +1381,7 @@ export default function Objects() {
       {/* Header */}
       <PageHeader
         title="Neural Object Detection & Forensics"
-        subtitle="Edge computer vision scanner (YOLO11m & YOLOE), audio announcements, and SQLite telemetry recorder"
+        subtitle="Edge computer vision scanner (YOLO11m & YOLOE), audio announcements, and MySQL telemetry recorder"
         icon={Box}
         badge={
           <Badge variant="cyan" size="xs" dot pulse>
@@ -2443,7 +2450,7 @@ export default function Objects() {
               <div className="flex justify-between items-center py-1 border-b border-border/40">
                 <span className="text-text-muted">Database Record Status</span>
                 <span className="text-emerald-400 font-bold flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Permanently Saved in SQLite
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Permanently Saved in MySQL
                 </span>
               </div>
               <div className="flex justify-between items-center py-1 border-b border-border/40">

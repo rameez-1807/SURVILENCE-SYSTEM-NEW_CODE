@@ -74,8 +74,11 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
-  // Optional: add tenant ID header if multi-tenant UI is needed later
-  config.headers['X-Tenant-ID'] = 'bb398bec-8429-44db-b9ec-b04c3ac81c36'; // Default Organization ID from seed
+  // Attach tenant ID only if explicitly set in localStorage
+  const tenantId = localStorage.getItem('tenant_id');
+  if (tenantId) {
+    config.headers['X-Tenant-ID'] = tenantId;
+  }
   return config;
 });
 

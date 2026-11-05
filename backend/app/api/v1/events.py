@@ -55,7 +55,10 @@ async def list_events(
     try:
         stmt = select(Event)
         if x_tenant_id:
-            stmt = stmt.where(Event.tenant_id == x_tenant_id)
+            from app.models.tenant import Tenant
+            tenant_check = await db.execute(select(Tenant.id).where(Tenant.id == x_tenant_id).limit(1))
+            if tenant_check.scalar_one_or_none():
+                stmt = stmt.where(Event.tenant_id == x_tenant_id)
         stmt = stmt.order_by(Event.observed_at.desc()).offset(skip).limit(limit)
         result = await db.execute(stmt)
         return list(result.scalars().all())
