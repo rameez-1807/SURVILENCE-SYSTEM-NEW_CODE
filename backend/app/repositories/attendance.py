@@ -8,7 +8,7 @@ import uuid
 from datetime import date as DateType
 from typing import Optional
 
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -105,9 +105,10 @@ class AttendanceRepository:
     async def list_records(
         self,
         skip: int = 0,
-        limit: int = 100,
+        limit: int = 500,
         filter_date: Optional[DateType] = None,
         filter_employee_id: Optional[str] = None,
+        search: Optional[str] = None,
     ) -> tuple[int, list[AttendanceRecord]]:
         """List attendance records with optional filters, paginated, joining employee data."""
 
@@ -122,6 +123,14 @@ class AttendanceRepository:
             base_stmt = base_stmt.where(AttendanceRecord.date == filter_date)
         if filter_employee_id:
             base_stmt = base_stmt.where(Employee.employee_id == filter_employee_id)
+        if search:
+            search_pattern = f"%{search.strip()}%"
+            base_stmt = base_stmt.where(
+                or_(
+                    Employee.name.ilike(search_pattern),
+                    Employee.employee_id.ilike(search_pattern),
+                )
+            )
 
         # Count query
         count_stmt = select(func.count()).select_from(base_stmt.subquery())

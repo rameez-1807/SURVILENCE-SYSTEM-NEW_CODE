@@ -1,7 +1,7 @@
 import uuid
 from typing import Optional
 
-from sqlalchemy import delete, select, func
+from sqlalchemy import delete, select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.employee import Employee
@@ -32,13 +32,24 @@ class EmployeeRepository:
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def list_employees(self, skip: int = 0, limit: int = 100) -> tuple[int, list[Employee]]:
-        """List employees paginated."""
-        count_stmt = select(func.count()).select_from(Employee)
+    async def list_employees(self, skip: int = 0, limit: int = 200, search: Optional[str] = None) -> tuple[int, list[Employee]]:
+        """List employees paginated with optional search filter."""
+        base_stmt = select(Employee)
+        if search:
+            search_pattern = f"%{search.strip()}%"
+            base_stmt = base_stmt.where(
+                or_(
+                    Employee.name.ilike(search_pattern),
+                    Employee.employee_id.ilike(search_pattern),
+                    Employee.department.ilike(search_pattern),
+                )
+            )
+
+        count_stmt = select(func.count()).select_from(base_stmt.subquery())
         count_result = await self.db.execute(count_stmt)
         total = count_result.scalar_one()
 
-        stmt = select(Employee).offset(skip).limit(limit).order_by(Employee.created_at.desc())
+        stmt = base_stmt.offset(skip).limit(limit).order_by(Employee.name.asc())
         result = await self.db.execute(stmt)
         items = list(result.scalars().all())
         return total, items

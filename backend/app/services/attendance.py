@@ -61,9 +61,10 @@ class AttendanceService:
     async def list_records(
         self,
         skip: int = 0,
-        limit: int = 100,
+        limit: int = 500,
         filter_date: Optional[DateType] = None,
         filter_employee_id: Optional[str] = None,
+        search: Optional[str] = None,
     ) -> AttendanceListResponse:
         """List attendance records with optional filters, enriched with employee info."""
         total, records = await self.repo.list_records(
@@ -71,6 +72,7 @@ class AttendanceService:
             limit=limit,
             filter_date=filter_date,
             filter_employee_id=filter_employee_id,
+            search=search,
         )
 
         items = []

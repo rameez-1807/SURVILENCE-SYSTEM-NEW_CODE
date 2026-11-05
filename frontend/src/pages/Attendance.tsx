@@ -10,7 +10,9 @@ import {
   Scan,
   Plus,
   RefreshCw,
-  Clock
+  Clock,
+  CloudDownload,
+  CheckCircle2
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { PageHeader } from '../components/ui/PageHeader';
@@ -28,6 +30,8 @@ export default function Attendance() {
   const [employees, setEmployees] = useState<any[]>([]);
   const [records, setRecords] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [apiMissing, setApiMissing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,10 +57,10 @@ export default function Attendance() {
       setApiMissing(false);
       
       if (activeTab === 'employees') {
-        const res = await api.get('/employees');
+        const res = await api.get('/employees?limit=200');
         setEmployees(res.data.items || []);
       } else {
-        const res = await api.get('/attendance');
+        const res = await api.get('/attendance?limit=500');
         setRecords(res.data.items || []);
       }
     } catch (err: any) {
@@ -69,6 +73,25 @@ export default function Attendance() {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSyncHRMS = async () => {
+    try {
+      setSyncing(true);
+      setSyncMessage(null);
+      const res = await api.post('/attendance/sync-hrms');
+      if (res.data?.status === 'success') {
+        setSyncMessage(`Successfully synced ${res.data.employees_synced} employees & ${res.data.attendance_synced} attendance records from HRMS!`);
+        setTimeout(() => setSyncMessage(null), 6000);
+      } else if (res.data?.message) {
+        setSyncMessage(res.data.message);
+      }
+      await fetchData();
+    } catch (err: any) {
+      alert("Failed to sync HRMS data: " + (err.response?.data?.message || err.message));
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -123,6 +146,16 @@ export default function Attendance() {
         )}
 
         <button 
+          onClick={handleSyncHRMS}
+          disabled={syncing}
+          className="inline-flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white rounded-xl text-xs font-semibold shadow-md shadow-emerald-500/25 transition-all disabled:opacity-50"
+          title="Sync latest attendance data from external HRMS API"
+        >
+          <CloudDownload className={cn("w-3.5 h-3.5", syncing && "animate-bounce")} />
+          <span>{syncing ? 'Syncing HRMS...' : 'Sync HRMS'}</span>
+        </button>
+
+        <button 
           onClick={() => setIsManualRegistrationOpen(true)}
           className="inline-flex items-center gap-1.5 px-3 py-2 bg-surface/80 hover:bg-surface-hover border border-border/80 text-white rounded-xl text-xs font-semibold transition-colors"
         >
@@ -146,6 +179,13 @@ export default function Attendance() {
           <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
         </button>
       </PageHeader>
+
+      {syncMessage && (
+        <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-medium animate-fade-in">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{syncMessage}</span>
+        </div>
+      )}
 
       {/* Tabs Selector */}
       <div className="flex items-center justify-between gap-4 border-b border-border/60 pb-3">

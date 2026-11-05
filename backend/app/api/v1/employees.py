@@ -1,5 +1,6 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
@@ -20,15 +21,16 @@ router = APIRouter(prefix="/employees", tags=["Employees"])
 
 @router.get("", response_model=EmployeeListResponse)
 async def list_employees(
-    skip: int = 0,
-    limit: int = 100,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=200, ge=1, le=1000),
+    search: Optional[str] = Query(default=None, description="Search by name, ID, or department"),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    List all employees.
+    List all employees with optional search.
     """
     repo = EmployeeService(db).repo
-    total, items = await repo.list_employees(skip=skip, limit=limit)
+    total, items = await repo.list_employees(skip=skip, limit=limit, search=search)
     return EmployeeListResponse(total=total, items=items)
 
 
