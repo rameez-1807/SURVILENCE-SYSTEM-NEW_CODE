@@ -9,7 +9,8 @@ import {
   Zap,
   Info,
   Upload,
-  Camera
+  Camera,
+  Cpu
 } from 'lucide-react';
 import { api } from '../lib/api';
 
@@ -53,23 +54,25 @@ interface FacenoxFaceResult {
 }
 
 export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalProps) {
+  // Camera Mode: 'hardware' (DirectShow OpenCV backend) or 'browser' (HTML5 WebRTC)
+  const [cameraMode, setCameraMode] = useState<'hardware' | 'browser'>('hardware');
+
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [rawErrorDetail, setRawErrorDetail] = useState<string | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
 
-  // Available camera devices
-  const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
-  const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
-
   // Status message for video overlay
-  const [statusMessage, setStatusMessage] = useState<string>('Initializing camera...');
+  const [statusMessage, setStatusMessage] = useState<string>('Initializing Facenox scanner...');
   const [statusLabel, setStatusLabel] = useState<string>('Scanning...');
   const [statusType, setStatusType] = useState<'info' | 'warning' | 'error' | 'success'>('info');
 
   // Attendance confirmation banner state
   const [lastAttendanceNotice, setLastAttendanceNotice] = useState<AttendanceNotice | null>(null);
 
-  // Static uploaded frame preview state (if testing via photo upload)
+  // Hardware direct frame preview (data:image/jpeg;base64,...)
+  const [hardwareFrame, setHardwareFrame] = useState<string | null>(null);
+
+  // Uploaded photo preview state
   const [uploadedPreview, setUploadedPreview] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -78,7 +81,6 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
   const streamRef = useRef<MediaStream | null>(null);
 
   const isScanningFrameRef = useRef(false);
-  const animFrameRef = useRef<number | null>(null);
   const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Laser scan line position states
@@ -89,10 +91,6 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
 
   // Stop camera stream & cancel animation loops
   const stopCamera = useCallback(() => {
-    if (animFrameRef.current) {
-      cancelAnimationFrame(animFrameRef.current);
-      animFrameRef.current = null;
-    }
     if (scanIntervalRef.current) {
       clearInterval(scanIntervalRef.current);
       scanIntervalRef.current = null;
@@ -105,139 +103,21 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
     lastFacesRef.current = [];
   }, []);
 
-  // Enumerate video devices on load
-  const enumerateCameras = useCallback(async () => {
-    try {
-      if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const videoInputs = devices.filter((d) => d.kind === 'videoinput');
-        setVideoDevices(videoInputs);
-        if (videoInputs.length > 0 && !selectedDeviceId) {
-          setSelectedDeviceId(videoInputs[0].deviceId);
-        }
-      }
-    } catch (e) {
-      console.warn('Failed to enumerate cameras:', e);
-    }
-  }, [selectedDeviceId]);
-
-  // Multi-tier resilient camera initialization
-  const startCamera = useCallback(async () => {
-    try {
-      stopCamera();
-      setCameraError(null);
-      setRawErrorDetail(null);
-      setApiError(null);
-      setUploadedPreview(null);
-      setLastAttendanceNotice(null);
-      setStatusMessage('Requesting camera access...');
-      setStatusLabel('Initializing...');
-      setStatusType('info');
-
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('Camera MediaDevices API is not supported by your browser.');
-      }
-
-      let stream: MediaStream | null = null;
-      const deviceConstraints = selectedDeviceId ? { exact: selectedDeviceId } : undefined;
-
-      // Tier 1: Try requested device or ideal 640x480 resolution
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            deviceId: deviceConstraints,
-            width: { ideal: 640 },
-            height: { ideal: 480 },
-            facingMode: selectedDeviceId ? undefined : 'user',
-          },
-          audio: false,
-        });
-      } catch (err1) {
-        console.warn('Camera Tier 1 failed, attempting Tier 2 fallback...', err1);
-        // Tier 2: Try basic deviceId or facingMode
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: selectedDeviceId ? { deviceId: { exact: selectedDeviceId } } : { facingMode: 'user' },
-            audio: false,
-          });
-        } catch (err2) {
-          console.warn('Camera Tier 2 failed, attempting Tier 3 raw video fallback...', err2);
-          // Tier 3: Pure video: true
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: false,
-          });
-        }
-      }
-
-      if (!stream) {
-        throw new Error('Could not establish camera stream.');
-      }
-
-      streamRef.current = stream;
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.setAttribute('playsinline', 'true');
-        await videoRef.current.play();
-      }
-
-      await enumerateCameras();
-
-      setStatusMessage('Facenox biometric scanner active');
-      setStatusLabel('Ready');
-      setStatusType('info');
-    } catch (err: any) {
-      console.error('Error accessing camera:', err);
-      setRawErrorDetail(`${err?.name || 'Error'}: ${err?.message || 'Access failed'}`);
-
-      let friendly = 'Could not access camera device.';
-      if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
-        friendly = 'Camera permission blocked. Click the lock/camera icon in your browser URL bar and choose "Allow".';
-      } else if (err?.name === 'NotReadableError' || err?.name === 'TrackStartError') {
-        friendly = 'Camera is currently locked by another application or browser tab. Please close other camera tabs (or apps like Zoom/Camera) and click "Retry Camera".';
-      } else if (err?.name === 'NotFoundError' || err?.name === 'DevicesNotFoundError') {
-        friendly = 'No webcam hardware detected. Please plug in a webcam or upload a frame to test.';
-      } else if (err?.name === 'OverconstrainedError') {
-        friendly = 'The selected camera does not support the requested video resolution. Please choose a different camera below.';
-      } else if (err?.message) {
-        friendly = err.message;
-      }
-
-      setCameraError(friendly);
-      setStatusLabel('Camera Error');
-      setStatusType('error');
-    }
-  }, [stopCamera, selectedDeviceId, enumerateCameras]);
-
-  // Cleanup on open/close
-  useEffect(() => {
-    if (isOpen) {
-      startCamera();
-    } else {
-      stopCamera();
-      setCameraError(null);
-      setRawErrorDetail(null);
-      setApiError(null);
-      setLastAttendanceNotice(null);
-      setUploadedPreview(null);
-    }
-    return stopCamera;
-  }, [isOpen, startCamera, stopCamera]);
-
-  // Frame scanner API caller
-  const processFrameBase64 = useCallback(async (base64Image: string) => {
+  // Hardware Camera Direct Polling Loop
+  const pollHardwareCamera = useCallback(async () => {
+    if (isScanningFrameRef.current) return;
     try {
       isScanningFrameRef.current = true;
-      const res = await api.post('/attendance/facenox-scan', {
-        image: base64Image,
-        auto_mark_attendance: true,
-        enable_liveness: true,
-        camera_name: 'Terminal-Gate-1',
-      });
-
+      const res = await api.post('/attendance/hardware-webcam/scan', {});
       if (res.data?.success) {
+        setCameraError(null);
+        setRawErrorDetail(null);
         setApiError(null);
+
+        if (res.data.frame) {
+          setHardwareFrame(res.data.frame);
+        }
+
         const faces: FacenoxFaceResult[] = res.data.faces || [];
         lastFacesRef.current = faces;
 
@@ -256,7 +136,6 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
             setStatusMessage(`${firstFace.employee.name} (${Math.round(firstFace.confidence * 100)}%)`);
             setStatusType('success');
 
-            // Handle Attendance Notification (Marked vs Already Marked)
             if (firstFace.attendance_marked) {
               setLastAttendanceNotice({
                 name: firstFace.employee.name,
@@ -278,17 +157,100 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
             setStatusType('warning');
           }
         }
+      } else if (res.data?.error) {
+        setCameraError(res.data.error);
       }
     } catch (err: any) {
-      console.warn('Facenox frame scan error:', err);
-      setApiError('Facenox server busy / delayed');
+      console.warn('Hardware camera scan error:', err);
     } finally {
       isScanningFrameRef.current = false;
     }
   }, []);
 
-  // Continuous frame scan loop
-  const scanFacenoxFrame = useCallback(async () => {
+  // Browser Camera Stream Starter (with progressive fallback)
+  const startBrowserCamera = useCallback(async () => {
+    try {
+      stopCamera();
+      setCameraError(null);
+      setRawErrorDetail(null);
+      setApiError(null);
+      setUploadedPreview(null);
+      setHardwareFrame(null);
+      setStatusMessage('Requesting browser webcam access...');
+      setStatusLabel('Initializing...');
+      setStatusType('info');
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Camera MediaDevices API is not supported by your browser.');
+      }
+
+      // Try basic video: true first to prevent overconstraint bugs
+      let stream: MediaStream | null = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
+      } catch (err1: any) {
+        console.warn('Raw video: true failed, trying facingMode user...', err1);
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user' },
+          audio: false,
+        });
+      }
+
+      if (!stream) {
+        throw new Error('Unable to start browser camera.');
+      }
+
+      streamRef.current = stream;
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.setAttribute('playsinline', 'true');
+        await videoRef.current.play();
+      }
+
+      setStatusMessage('Facenox biometric scanner active');
+      setStatusLabel('Ready');
+      setStatusType('info');
+    } catch (err: any) {
+      console.error('Browser camera access error:', err);
+      setRawErrorDetail(`${err?.name || 'Error'}: ${err?.message || 'Access failed'}`);
+      setCameraError('Browser webcam blocked. Switching to Direct Hardware Camera recommended.');
+      setStatusLabel('Camera Notice');
+      setStatusType('error');
+    }
+  }, [stopCamera]);
+
+  // Main lifecycle effect
+  useEffect(() => {
+    if (isOpen) {
+      if (cameraMode === 'hardware') {
+        stopCamera();
+        setCameraError(null);
+        void pollHardwareCamera();
+        const interval = setInterval(() => {
+          void pollHardwareCamera();
+        }, 280);
+        scanIntervalRef.current = interval;
+      } else {
+        void startBrowserCamera();
+      }
+    } else {
+      stopCamera();
+      setCameraError(null);
+      setRawErrorDetail(null);
+      setApiError(null);
+      setLastAttendanceNotice(null);
+      setUploadedPreview(null);
+      setHardwareFrame(null);
+    }
+    return stopCamera;
+  }, [isOpen, cameraMode, startBrowserCamera, pollHardwareCamera, stopCamera]);
+
+  // Browser Camera Scan Frame Method
+  const scanBrowserFrame = useCallback(async () => {
     const video = videoRef.current;
     if (!video || video.paused || video.ended || video.readyState < 2 || isScanningFrameRef.current) {
       return;
@@ -302,11 +264,46 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
 
     offCtx.drawImage(video, 0, 0, 640, 480);
     const b64 = offCanvas.toDataURL('image/jpeg', 0.80);
-    await processFrameBase64(b64);
-  }, [processFrameBase64]);
 
-  // Fallback: Test with uploaded image file
-  const handleUploadTestFrame = (e: React.ChangeEvent<HTMLInputElement>) => {
+    try {
+      isScanningFrameRef.current = true;
+      const res = await api.post('/attendance/facenox-scan', {
+        image: b64,
+        auto_mark_attendance: true,
+        enable_liveness: true,
+        camera_name: 'Terminal-Gate-1',
+      });
+      if (res.data?.success) {
+        setApiError(null);
+        const faces: FacenoxFaceResult[] = res.data.faces || [];
+        lastFacesRef.current = faces;
+        if (faces.length > 0 && faces[0].attendance_marked && faces[0].employee) {
+          setLastAttendanceNotice({
+            name: faces[0].employee.name,
+            employee_id: faces[0].employee.employee_id,
+            check_in: faces[0].attendance_time || 'Now',
+            status: 'Marked',
+          });
+        }
+      }
+    } catch (err: any) {
+      console.warn('Browser frame scan error:', err);
+    } finally {
+      isScanningFrameRef.current = false;
+    }
+  }, []);
+
+  // Interval for browser mode
+  useEffect(() => {
+    if (!isOpen || cameraMode !== 'browser' || cameraError || uploadedPreview) return;
+    const interval = setInterval(() => {
+      void scanBrowserFrame();
+    }, 280);
+    return () => clearInterval(interval);
+  }, [isOpen, cameraMode, cameraError, uploadedPreview, scanBrowserFrame]);
+
+  // Upload test photo handler
+  const handleUploadTestPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -315,49 +312,62 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
       const b64 = reader.result as string;
       setUploadedPreview(b64);
       setCameraError(null);
-      setStatusMessage('Analyzing uploaded frame with Facenox...');
+      setStatusMessage('Analyzing photo with Facenox...');
       setStatusLabel('Processing');
       setStatusType('info');
-      await processFrameBase64(b64);
+
+      try {
+        const res = await api.post('/attendance/facenox-scan', {
+          image: b64,
+          auto_mark_attendance: true,
+          enable_liveness: true,
+          camera_name: 'Upload-Terminal',
+        });
+        if (res.data?.success) {
+          lastFacesRef.current = res.data.faces || [];
+          if (res.data.faces?.[0]?.attendance_marked) {
+            const f = res.data.faces[0];
+            setLastAttendanceNotice({
+              name: f.employee.name,
+              employee_id: f.employee.employee_id,
+              check_in: f.attendance_time || 'Now',
+              status: 'Marked',
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Upload test error:', err);
+      }
     };
     reader.readAsDataURL(file);
   };
 
-  // Canvas Rendering Overlay
+  // Canvas Overlay Renderer (Bounding Boxes & Laser Lines)
   useEffect(() => {
-    if (!isOpen || (cameraError && !uploadedPreview)) return;
+    if (!isOpen) return;
 
     let animId: number;
 
     const renderOverlay = () => {
-      const video = videoRef.current;
       const canvas = canvasRef.current;
       if (!canvas) return;
 
-      const currentWidth = uploadedPreview ? 640 : (video?.videoWidth || 640);
-      const currentHeight = uploadedPreview ? 480 : (video?.videoHeight || 480);
-
-      if (canvas.width !== currentWidth || canvas.height !== currentHeight) {
-        canvas.width = currentWidth;
-        canvas.height = currentHeight;
-      }
+      canvas.width = 640;
+      canvas.height = 480;
 
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      const scaleX = canvas.width / 640;
-      const scaleY = canvas.height / 480;
-
       const faces = lastFacesRef.current;
 
       faces.forEach((face) => {
         const b = face.bbox;
-        const x = b.x * scaleX;
-        const y = b.y * scaleY;
-        const w = b.width * scaleX;
-        const h = b.height * scaleY;
+        const x = b.x;
+        const y = b.y;
+        const w = b.width;
+        const h = b.height;
 
         const isReal = face.liveness?.is_real ?? true;
         const isMatched = face.match_found && face.employee;
@@ -472,14 +482,12 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
         ctx.restore();
       });
 
-      if (!uploadedPreview) {
-        animId = requestAnimationFrame(renderOverlay);
-      }
+      animId = requestAnimationFrame(renderOverlay);
     };
 
     animId = requestAnimationFrame(renderOverlay);
     return () => cancelAnimationFrame(animId);
-  }, [isOpen, cameraError, uploadedPreview]);
+  }, [isOpen]);
 
   // Laser beam animation inside active face box
   const drawLaserBeam = (
@@ -516,22 +524,13 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
     ctx.restore();
   };
 
-  // Continuous frame trigger interval (every 280ms)
-  useEffect(() => {
-    if (!isOpen || cameraError || uploadedPreview) return;
-    const interval = setInterval(() => {
-      void scanFacenoxFrame();
-    }, 280);
-    return () => clearInterval(interval);
-  }, [isOpen, cameraError, uploadedPreview, scanFacenoxFrame]);
-
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
       <div className="bg-surface border border-border w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
         
-        {/* Header */}
+        {/* Header with Camera Mode Selector */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-surface-hover/40">
           <div className="flex items-center gap-2.5">
             <div className="p-2 bg-cyan-500/10 rounded-lg border border-cyan-500/20 text-cyan-400">
@@ -549,22 +548,34 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
           </div>
           
           <div className="flex items-center gap-2">
-            {videoDevices.length > 1 && (
-              <select
-                value={selectedDeviceId}
-                onChange={(e) => {
-                  setSelectedDeviceId(e.target.value);
-                  setTimeout(startCamera, 50);
-                }}
-                className="bg-[#0a0f1d] border border-border text-white text-[11px] rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+            {/* Mode Toggle: Direct Hardware vs Browser Webcam */}
+            <div className="flex items-center bg-[#0a0f1d] p-1 rounded-xl border border-border text-xs">
+              <button
+                onClick={() => setCameraMode('hardware')}
+                className={`px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1 transition-all ${
+                  cameraMode === 'hardware'
+                    ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-sm'
+                    : 'text-text-muted hover:text-white'
+                }`}
+                title="DirectShow Native Hardware WebCam (Bypasses Browser Security Barriers)"
               >
-                {videoDevices.map((d, i) => (
-                  <option key={d.deviceId || i} value={d.deviceId}>
-                    {d.label || `Camera ${i + 1}`}
-                  </option>
-                ))}
-              </select>
-            )}
+                <Cpu className="w-3 h-3 text-cyan-300" />
+                <span>Direct USB WebCam</span>
+              </button>
+              <button
+                onClick={() => setCameraMode('browser')}
+                className={`px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1 transition-all ${
+                  cameraMode === 'browser'
+                    ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-sm'
+                    : 'text-text-muted hover:text-white'
+                }`}
+                title="Browser WebRTC Media Stream"
+              >
+                <Camera className="w-3 h-3 text-cyan-300" />
+                <span>Browser Cam</span>
+              </button>
+            </div>
+
             <button 
               onClick={onClose}
               className="p-1.5 text-text-muted hover:text-text rounded-lg hover:bg-surface transition-colors"
@@ -576,12 +587,14 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
 
         {/* Video & Canvas Area */}
         <div className="relative aspect-video bg-black flex items-center justify-center overflow-hidden border-b border-border">
-          {cameraError && !uploadedPreview ? (
+          {cameraMode === 'browser' && cameraError && !uploadedPreview ? (
             <div className="flex flex-col items-center gap-3 text-center p-6 bg-danger/10 border border-danger/20 rounded-xl text-danger max-w-lg z-20 m-4">
               <CameraOff className="w-10 h-10 shrink-0 text-rose-400" />
               <div>
-                <h3 className="font-bold text-sm text-white">Camera Access Notice</h3>
-                <p className="text-xs mt-1.5 text-rose-300 leading-relaxed">{cameraError}</p>
+                <h3 className="font-bold text-sm text-white">Browser Camera Notice</h3>
+                <p className="text-xs mt-1.5 text-rose-300 leading-relaxed">
+                  Browser camera access not available. Click below to use <strong>Direct USB WebCam</strong> (works immediately without browser permissions).
+                </p>
                 {rawErrorDetail && (
                   <p className="text-[10px] font-mono text-text-muted mt-2 bg-black/40 px-2 py-1 rounded">
                     {rawErrorDetail}
@@ -589,25 +602,20 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
                 )}
               </div>
 
-              {/* Action Buttons: Retry Camera & Upload Test Frame */}
               <div className="flex flex-wrap items-center justify-center gap-2 mt-2">
                 <button
-                  onClick={startCamera}
-                  className="flex items-center gap-1.5 px-4 py-1.5 bg-danger/20 hover:bg-danger/30 text-danger border border-danger/30 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                  onClick={() => setCameraMode('hardware')}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-lg text-xs font-semibold shadow-md transition-all cursor-pointer"
                 >
-                  <RefreshCw className="w-3.5 h-3.5" /> Retry Camera
+                  <Cpu className="w-3.5 h-3.5" /> Switch to Direct USB WebCam
                 </button>
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center gap-1.5 px-4 py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-lg text-xs font-semibold shadow-md transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 px-4 py-2 bg-surface hover:bg-surface-hover text-text border border-border rounded-lg text-xs font-semibold transition-all cursor-pointer"
                 >
-                  <Upload className="w-3.5 h-3.5" /> Upload Test Photo
+                  <Upload className="w-3.5 h-3.5 text-cyan-400" /> Test with Photo
                 </button>
               </div>
-
-              <p className="text-[10px] text-text-muted mt-1">
-                Tip: If other tabs named "Face Attendance" are open in your browser, close them so Windows releases the camera lock.
-              </p>
             </div>
           ) : null}
 
@@ -617,10 +625,10 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
             type="file" 
             accept="image/*" 
             className="hidden" 
-            onChange={handleUploadTestFrame} 
+            onChange={handleUploadTestPhoto} 
           />
 
-          {/* Live Webcam Stream or Static Uploaded Image */}
+          {/* Video / Image Display */}
           {uploadedPreview ? (
             <div className="relative w-full h-full">
               <img 
@@ -632,14 +640,27 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
                 <button
                   onClick={() => {
                     setUploadedPreview(null);
-                    startCamera();
+                    setCameraMode('hardware');
                   }}
                   className="px-3 py-1 bg-black/75 hover:bg-black text-white text-[10px] font-semibold rounded-lg border border-white/20 flex items-center gap-1 shadow-lg"
                 >
-                  <Camera className="w-3 h-3 text-cyan-400" /> Switch to Live Camera
+                  <Camera className="w-3 h-3 text-cyan-400" /> Back to Live WebCam
                 </button>
               </div>
             </div>
+          ) : cameraMode === 'hardware' ? (
+            hardwareFrame ? (
+              <img 
+                src={hardwareFrame} 
+                alt="Hardware Live WebCam" 
+                className="absolute inset-0 w-full h-full object-cover" 
+              />
+            ) : (
+              <div className="flex flex-col items-center gap-2 text-text-muted text-xs">
+                <RefreshCw className="w-6 h-6 animate-spin text-cyan-400" />
+                <span>Connecting to USB2.0 HD UVC WebCam...</span>
+              </div>
+            )
           ) : (
             <video 
               ref={videoRef} 
@@ -657,27 +678,25 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
           />
 
           {/* Top Status Badges */}
-          {(!cameraError || uploadedPreview) && (
-            <div className="absolute top-4 left-4 right-4 flex items-center justify-between z-20 pointer-events-none">
-              <div className="flex items-center gap-2 bg-black/70 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/10 text-xs text-white shadow-lg">
-                <span className={`w-2.5 h-2.5 rounded-full ${
-                  statusType === 'success' ? 'bg-emerald-400 animate-pulse' : 
-                  statusType === 'error' ? 'bg-rose-500 animate-pulse' : 
-                  statusType === 'warning' ? 'bg-amber-400' : 
-                  'bg-cyan-400 animate-ping'
-                }`} />
-                <span className="font-semibold text-xs tracking-wide uppercase text-white/90">{statusLabel}:</span>
-                <span className="font-medium text-white/80">{statusMessage}</span>
-              </div>
-
-              {apiError && (
-                <div className="flex items-center gap-1.5 bg-danger/80 backdrop-blur-md text-white text-xs px-3 py-1.5 rounded-full border border-danger/40">
-                  <AlertTriangle className="w-3.5 h-3.5" />
-                  <span>{apiError}</span>
-                </div>
-              )}
+          <div className="absolute top-4 left-4 right-4 flex items-center justify-between z-20 pointer-events-none">
+            <div className="flex items-center gap-2 bg-black/70 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/10 text-xs text-white shadow-lg">
+              <span className={`w-2.5 h-2.5 rounded-full ${
+                statusType === 'success' ? 'bg-emerald-400 animate-pulse' : 
+                statusType === 'error' ? 'bg-rose-500 animate-pulse' : 
+                statusType === 'warning' ? 'bg-amber-400' : 
+                'bg-cyan-400 animate-ping'
+              }`} />
+              <span className="font-semibold text-xs tracking-wide uppercase text-white/90">{statusLabel}:</span>
+              <span className="font-medium text-white/80">{statusMessage}</span>
             </div>
-          )}
+
+            {apiError && (
+              <div className="flex items-center gap-1.5 bg-danger/80 backdrop-blur-md text-white text-xs px-3 py-1.5 rounded-full border border-danger/40">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                <span>{apiError}</span>
+              </div>
+            )}
+          </div>
 
           {/* Bottom Attendance Confirmation Toast Card */}
           {lastAttendanceNotice && (
@@ -720,20 +739,18 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-emerald-400" />
             <span className="text-[11px]">
-              Anti-Spoofing: <strong className="text-white">Active</strong> &bull; Engine: <strong className="text-cyan-400">Facenox ArcFace 512d</strong> &bull; Timezone: <strong className="text-white">Asia/Kolkata (IST)</strong>
+              Source: <strong className="text-white">{cameraMode === 'hardware' ? 'USB2.0 HD UVC WebCam' : 'Browser WebRTC'}</strong> &bull; Anti-Spoof: <strong className="text-emerald-400">Active</strong> &bull; Timezone: <strong className="text-white">Asia/Kolkata (IST)</strong>
             </span>
           </div>
 
           <div className="flex items-center gap-2">
-            {!cameraError && (
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="px-3 py-1.5 bg-surface hover:bg-surface-hover border border-border text-text rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5"
-                title="Upload photo to test recognition"
-              >
-                <Upload className="w-3.5 h-3.5 text-cyan-400" /> Test Photo
-              </button>
-            )}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="px-3 py-1.5 bg-surface hover:bg-surface-hover border border-border text-text rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5"
+              title="Upload photo to test recognition"
+            >
+              <Upload className="w-3.5 h-3.5 text-cyan-400" /> Test Photo
+            </button>
             <button 
               onClick={onClose}
               className="px-4 py-1.5 bg-surface hover:bg-surface-hover border border-border text-text rounded-lg text-xs font-semibold transition-colors"

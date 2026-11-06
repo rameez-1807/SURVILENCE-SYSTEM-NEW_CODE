@@ -253,3 +253,159 @@ async def sync_hrms_attendance():
     except Exception as exc:
         logger.error(f"HRMS sync failed: {exc}", exc_info=True)
         return {"status": "error", "message": str(exc)}
+
+
+@router.post("/hardware-webcam/scan")
+async def scan_hardware_webcam(
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Direct hardware webcam acquisition via DirectShow (Windows) / OpenCV:
+    Bypasses all browser permission barriers by reading directly from USB/Integrated Webcam.
+    """
+    from app.core.camera.local_webcam import local_webcam_manager
+    from app.core.ai.facenox_engine import facenox_engine
+    import cv2
+    import base64
+
+    frame = local_webcam_manager.get_latest_frame()
+    if frame is None:
+        return {
+            "success": False,
+            "error": "Hardware webcam is not accessible or busy.",
+            "faces_detected": 0,
+            "faces": []
+        }
+
+    ret, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+    frame_b64 = "data:image/jpeg;base64," + base64.b64encode(buf).decode("utf-8") if ret else None
+
+    emp_repo = EmployeeRepository(db)
+    employees = await emp_repo.list_all_with_encodings()
+    emp_records = [
+        {
+            "id": emp.id,
+            "name": emp.name,
+            "employee_id": emp.employee_id,
+            "department": emp.department,
+            "designation": emp.designation,
+            "face_encoding": getattr(emp, "decrypted_embedding", None) or emp.face_encoding
+        }
+        for emp in employees if (getattr(emp, "decrypted_embedding", None) or emp.face_encoding)
+    ]
+
+    faces = await facenox_engine.scan_and_recognize_frame(
+        image=frame,
+        enrolled_employees=emp_records,
+        similarity_threshold=0.55,
+        enable_liveness=True,
+        client_id="hardware_webcam"
+    )
+
+    attendance_events = []
+    now_ist = datetime.now(ATTENDANCE_TZ)
+    today_date = now_ist.date()
+    current_time = now_ist.time()
+    current_time_str = now_ist.strftime("%H:%M:%S")
+
+    att_repo = AttendanceRepository(db)
+
+    for face in faces:
+        face["attendance_marked"] = False
+        face["attendance_already_marked"] = False
+        face["attendance_cooldown"] = False
+
+        if face.get("match_found") and face.get("employee"):
+            emp_info = face["employee"]
+            emp_id = emp_info["employee_id"]
+            emp_uuid = emp_info["id"]
+            is_real = face.get("liveness", {}).get("is_real", True)
+
+            if not is_real:
+                face["attendance_blocked_reason"] = "Anti-spoofing alert: digital photo or screen replay detected"
+                continue
+
+            existing_record = None
+            try:
+                import uuid as _uuid
+                existing_record = await att_repo.get_by_employee_and_date(
+                    _uuid.UUID(str(emp_uuid)),
+                    today_date
+                )
+            except Exception as e:
+                logger.debug("Error checking existing attendance: %s", e)
+
+            last_marked = _facenox_cooldown.get(emp_id, 0.0)
+            in_cooldown = (time.time() - last_marked) < COOLDOWN_SECONDS
+
+            if existing_record:
+                face["attendance_already_marked"] = True
+                first_seen_str = existing_record.first_seen.strftime("%H:%M:%S") if existing_record.first_seen else current_time_str
+                face["attendance_time"] = first_seen_str
+                face["attendance_message"] = f"Attendance Already Marked (Check-in at {first_seen_str})"
+
+                if not in_cooldown:
+                    try:
+                        await att_repo.update_last_seen(
+                            existing_record,
+                            current_time,
+                            int(face.get("confidence", 0.95) * 100)
+                        )
+                        _facenox_cooldown[emp_id] = time.time()
+                    except Exception as err:
+                        logger.warning("Failed to update last_seen for %s: %s", emp_id, err)
+
+                if in_cooldown:
+                    face["attendance_cooldown"] = True
+            else:
+                if not in_cooldown:
+                    try:
+                        import uuid as _uuid
+                        rec = await att_repo.create(
+                            AttendanceRecordCreate(
+                                employee_id=emp_id,
+                                attendance_date=today_date,
+                                first_seen=current_time,
+                                last_seen=current_time,
+                                camera_name="USB2.0 Hardware WebCam",
+                                confidence=int(face.get("confidence", 0.95) * 100),
+                            ),
+                            employee_uuid=_uuid.UUID(str(emp_uuid))
+                        )
+                        _facenox_cooldown[emp_id] = time.time()
+                        face["attendance_marked"] = True
+                        face["attendance_time"] = current_time_str
+                        face["attendance_message"] = f"Attendance Marked Successfully ({current_time_str})"
+
+                        attendance_events.append({
+                            "employee_id": emp_id,
+                            "name": emp_info["name"],
+                            "time": current_time_str,
+                            "status": "Checked In",
+                            "confidence": face.get("confidence"),
+                        })
+                        logger.info("Facenox Hardware WebCam Auto-Marked: %s at %s IST", emp_info["name"], current_time_str)
+                    except Exception as exc:
+                        logger.warning("Facenox attendance auto-mark error for %s: %s", emp_id, exc)
+
+    return {
+        "success": True,
+        "engine": "Facenox AI (Hardware USB WebCam DirectShow)",
+        "frame": frame_b64,
+        "faces_detected": len(faces),
+        "faces": faces,
+        "attendance_events": attendance_events,
+        "timestamp_ist": current_time_str,
+    }
+
+
+@router.get("/hardware-webcam/capture")
+async def capture_hardware_webcam():
+    """
+    Grab 1 single frame from local hardware webcam for enrollment in FaceRegistrationModal.
+    """
+    from app.core.camera.local_webcam import local_webcam_manager
+    b64 = local_webcam_manager.get_latest_frame_base64()
+    if not b64:
+        return {"success": False, "error": "Hardware webcam not available"}
+    return {"success": True, "image": b64}

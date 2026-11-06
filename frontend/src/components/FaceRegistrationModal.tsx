@@ -18,7 +18,9 @@ import {
   ArrowLeft,
   Eye,
   CheckCircle2,
-  Upload
+  Upload,
+  Cpu,
+  CameraOff
 } from 'lucide-react';
 import { api } from '../lib/api';
 import * as faceapi from 'face-api.js';
@@ -43,6 +45,9 @@ export function FaceRegistrationModal({
   onSuccess,
   initialEmployee = null 
 }: FaceRegistrationModalProps) {
+  // Camera Mode: 'hardware' (DirectShow OpenCV backend) or 'browser' (HTML5 WebRTC)
+  const [cameraMode, setCameraMode] = useState<'hardware' | 'browser'>('hardware');
+
   // Form fields
   const [name, setName] = useState('');
   const [employeeId, setEmployeeId] = useState('');
@@ -60,6 +65,7 @@ export function FaceRegistrationModal({
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [hardwareFrame, setHardwareFrame] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -67,7 +73,7 @@ export function FaceRegistrationModal({
   const [scanStage, setScanStage] = useState<ScanStage>('front_1');
   const [scanProgress, setScanProgress] = useState(0);
   const [statusMessage, setStatusMessage] = useState<string>('Initializing camera...');
-  const [instructionMessage, setInstructionMessage] = useState<string>('Step 1/4: Look straight at camera');
+  const [instructionMessage, setInstructionMessage] = useState<string>('Look straight at camera');
   const [faceDetected, setFaceDetected] = useState(false);
   const [isScanningActive, setIsScanningActive] = useState(false);
   const [registrationSuccess, setRegistrationSuccess] = useState<{
@@ -81,8 +87,10 @@ export function FaceRegistrationModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const animFrameRef = useRef<number | null>(null);
+  const hardwarePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isPollingRef = useRef(false);
 
-  // Sample accumulation
+  // Sample accumulation for guided scan
   const stageSamplesRef = useRef<{
     front_1: number;
     turn_left: number;
@@ -95,6 +103,7 @@ export function FaceRegistrationModal({
   const scanYRef = useRef(0);
   const scanDirRef = useRef(1);
   const lastCaptureTimeRef = useRef(0);
+  const hardwareFacesRef = useRef<any[]>([]);
 
   // Pre-fill initial employee if passed
   useEffect(() => {
@@ -106,7 +115,7 @@ export function FaceRegistrationModal({
     }
   }, [initialEmployee]);
 
-  // Load client-side face detection models for real-time guidance
+  // Load client-side face detection models for real-time guidance (browser mode)
   useEffect(() => {
     let isMounted = true;
     const loadModels = async () => {
@@ -121,10 +130,7 @@ export function FaceRegistrationModal({
           setModelsLoaded(true);
         }
       } catch (e) {
-        console.error('Failed to load face detection neural models:', e);
-        if (isMounted) {
-          setCameraError('Failed to load local face detection models from /models.');
-        }
+        console.warn('Face-api client models not loaded:', e);
       }
     };
 
@@ -136,8 +142,8 @@ export function FaceRegistrationModal({
     };
   }, [isOpen]);
 
-  // Stop camera stream safely
-  const stopCamera = useCallback(() => {
+  // Stop browser camera stream safely
+  const stopBrowserCamera = useCallback(() => {
     if (animFrameRef.current) {
       cancelAnimationFrame(animFrameRef.current);
       animFrameRef.current = null;
@@ -146,14 +152,22 @@ export function FaceRegistrationModal({
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
-    isScanningActiveRef.current = false;
-    setIsScanningActive(false);
   }, []);
 
-  // Start webcam feed with permission handling
-  const startCamera = useCallback(async () => {
+  // Stop hardware polling loop
+  const stopHardwarePolling = useCallback(() => {
+    if (hardwarePollRef.current) {
+      clearInterval(hardwarePollRef.current);
+      hardwarePollRef.current = null;
+    }
+    isPollingRef.current = false;
+  }, []);
+
+  // Start webcam feed with progressive fallback (Browser Mode)
+  const startBrowserCamera = useCallback(async () => {
     try {
-      stopCamera();
+      stopBrowserCamera();
+      stopHardwarePolling();
       setCameraError(null);
       setError(null);
       setCapturedImage(null);
@@ -171,23 +185,15 @@ export function FaceRegistrationModal({
       let stream: MediaStream | null = null;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+          video: true,
           audio: false,
         });
       } catch (err1) {
-        console.warn('Enrollment Camera Tier 1 failed, attempting Tier 2...', err1);
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'user' },
-            audio: false,
-          });
-        } catch (err2) {
-          console.warn('Enrollment Camera Tier 2 failed, attempting raw video: true...', err2);
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: false,
-          });
-        }
+        console.warn('Browser raw video:true failed, trying user facingMode...', err1);
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user' },
+          audio: false,
+        });
       }
 
       if (!stream) {
@@ -204,20 +210,121 @@ export function FaceRegistrationModal({
         videoRef.current.play().catch(() => {});
       }
     } catch (err: any) {
-      console.error('Webcam access error:', err);
-      let friendly = 'Unable to access camera hardware. Please check connection.';
+      console.warn('Browser webcam access error:', err);
+      let friendly = 'Browser webcam blocked or unavailable. Switch to Direct USB WebCam mode below.';
       if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
-        friendly = 'Camera access blocked. Please allow webcam permissions in your browser URL bar.';
-      } else if (err?.name === 'NotReadableError' || err?.name === 'TrackStartError') {
-        friendly = 'Camera is currently locked by another application or browser tab. Please close other camera tabs and click Retry, or upload a photo.';
+        friendly = 'Camera permission blocked. Please allow webcam in Chrome URL bar, or click Direct USB WebCam.';
       } else if (err?.name === 'NotFoundError' || err?.name === 'DevicesNotFoundError') {
-        friendly = 'No camera found. You can upload a photo to enroll face.';
-      } else if (err?.message) {
-        friendly = `${err.name || 'Error'}: ${err.message}`;
+        friendly = 'Browser could not find camera device. Switch to Direct USB WebCam (Recommended).';
       }
       setCameraError(friendly);
     }
-  }, [stopCamera]);
+  }, [stopBrowserCamera, stopHardwarePolling]);
+
+  // Polling loop for Native Hardware WebCam (DirectShow)
+  const pollHardwareEnrollment = useCallback(async () => {
+    if (isPollingRef.current) return;
+    try {
+      isPollingRef.current = true;
+      const res = await api.post('/attendance/hardware-webcam/scan', {});
+      if (res.data?.success) {
+        setCameraError(null);
+        if (res.data.frame) {
+          setHardwareFrame(res.data.frame);
+        }
+
+        const faces = res.data.faces || [];
+        hardwareFacesRef.current = faces;
+
+        if (faces.length === 1) {
+          setFaceDetected(true);
+          const f = faces[0];
+          const conf = Math.round((f.confidence || 0.95) * 100);
+          setStatusMessage(`Face Detected (${conf}%)`);
+          setInstructionMessage('Face centered! Click "Capture Face" or start guided scan.');
+
+          // If guided scanning is active in hardware mode, progress stages
+          if (isScanningActiveRef.current) {
+            const now = Date.now();
+            if (now - lastCaptureTimeRef.current >= 260) {
+              lastCaptureTimeRef.current = now;
+              const cur = scanStageRef.current;
+              if (cur === 'front_1') {
+                stageSamplesRef.current.front_1 += 1;
+                setScanProgress(25);
+                if (stageSamplesRef.current.front_1 >= 2) {
+                  scanStageRef.current = 'turn_left';
+                  setScanStage('turn_left');
+                  setInstructionMessage('Step 2/4: Turn face slightly LEFT');
+                }
+              } else if (cur === 'turn_left') {
+                stageSamplesRef.current.turn_left += 1;
+                setScanProgress(50);
+                if (stageSamplesRef.current.turn_left >= 2) {
+                  scanStageRef.current = 'turn_right';
+                  setScanStage('turn_right');
+                  setInstructionMessage('Step 3/4: Turn face slightly RIGHT');
+                }
+              } else if (cur === 'turn_right') {
+                stageSamplesRef.current.turn_right += 1;
+                setScanProgress(75);
+                if (stageSamplesRef.current.turn_right >= 2) {
+                  scanStageRef.current = 'front_2';
+                  setScanStage('front_2');
+                  setInstructionMessage('Step 4/4: Look straight to finish');
+                }
+              } else if (cur === 'front_2') {
+                stageSamplesRef.current.front_2 += 1;
+                setScanProgress(100);
+                if (stageSamplesRef.current.front_2 >= 2) {
+                  // Complete
+                  isScanningActiveRef.current = false;
+                  setIsScanningActive(false);
+                  setScanStage('complete');
+                  scanStageRef.current = 'complete';
+                  if (res.data.frame) {
+                    setCapturedImage(res.data.frame);
+                  }
+                  stopHardwarePolling();
+                  setStatusMessage('Face Scan Completed Successfully');
+                  setInstructionMessage('Biometric verified. Please confirm employee details below.');
+                }
+              }
+            }
+          }
+        } else if (faces.length > 1) {
+          setFaceDetected(false);
+          setStatusMessage('Multiple Faces Detected — Only 1 person permitted');
+          setInstructionMessage('Please ensure only the employee is visible.');
+        } else {
+          setFaceDetected(false);
+          setStatusMessage('Looking for human face...');
+          setInstructionMessage('Center your face in front of the camera.');
+        }
+      } else if (res.data?.error) {
+        setCameraError(res.data.error);
+      }
+    } catch (err: any) {
+      console.warn('Hardware webcam polling error:', err);
+    } finally {
+      isPollingRef.current = false;
+    }
+  }, [stopHardwarePolling]);
+
+  // Capture current frame from hardware webcam instantly
+  const handleCaptureInstantHardware = useCallback(() => {
+    if (hardwareFrame) {
+      setCapturedImage(hardwareFrame);
+      setScanProgress(100);
+      setScanStage('complete');
+      scanStageRef.current = 'complete';
+      isScanningActiveRef.current = false;
+      setIsScanningActive(false);
+      stopHardwarePolling();
+      setStatusMessage('Face Captured from USB WebCam');
+      setInstructionMessage('Biometric photo ready. Complete employee details below.');
+    }
+  }, [hardwareFrame, stopHardwarePolling]);
 
   // Upload photo fallback for enrollment
   const handleUploadPortrait = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -230,19 +337,19 @@ export function FaceRegistrationModal({
       setCapturedImage(b64);
       setScanProgress(100);
       setScanStage('complete');
-      stopCamera();
+      stopBrowserCamera();
+      stopHardwarePolling();
       setStatusMessage('Portrait Photo Uploaded');
       setInstructionMessage('Biometric photo ready. Complete employee details below.');
     };
     reader.readAsDataURL(file);
   };
 
-  // Trigger camera on open
+  // Main lifecycle for camera modes
   useEffect(() => {
-    if (isOpen && modelsLoaded) {
-      startCamera();
-    } else if (!isOpen) {
-      stopCamera();
+    if (!isOpen) {
+      stopBrowserCamera();
+      stopHardwarePolling();
       setName('');
       setEmployeeId('');
       setDepartment('');
@@ -251,13 +358,40 @@ export function FaceRegistrationModal({
       setEmail('');
       setPhone('');
       setCapturedImage(null);
+      setHardwareFrame(null);
       setRegistrationSuccess(null);
       setError(null);
+      setCameraError(null);
       setIdCheckStatus('idle');
       setIdCheckMessage('');
+      isScanningActiveRef.current = false;
+      setIsScanningActive(false);
+      return;
     }
-    return stopCamera;
-  }, [isOpen, modelsLoaded, startCamera, stopCamera]);
+
+    if (capturedImage) {
+      stopBrowserCamera();
+      stopHardwarePolling();
+      return;
+    }
+
+    if (cameraMode === 'hardware') {
+      stopBrowserCamera();
+      void pollHardwareEnrollment();
+      const interval = setInterval(() => {
+        void pollHardwareEnrollment();
+      }, 260);
+      hardwarePollRef.current = interval;
+      return () => {
+        clearInterval(interval);
+        hardwarePollRef.current = null;
+      };
+    } else {
+      stopHardwarePolling();
+      void startBrowserCamera();
+      return stopBrowserCamera;
+    }
+  }, [isOpen, cameraMode, capturedImage, pollHardwareEnrollment, startBrowserCamera, stopBrowserCamera, stopHardwarePolling]);
 
   // Debounced Employee ID Uniqueness Check
   useEffect(() => {
@@ -298,15 +432,14 @@ export function FaceRegistrationModal({
     setStatusMessage('Hold steady looking directly at the camera...');
   };
 
-  // Finish scan, capture snapshot, and transition to manual details form
-  const handleCompleteScan = (video: HTMLVideoElement) => {
+  // Finish scan in browser mode, capture snapshot, and transition to manual details form
+  const handleCompleteBrowserScan = (video: HTMLVideoElement) => {
     isScanningActiveRef.current = false;
     setIsScanningActive(false);
     setScanProgress(100);
     setScanStage('complete');
     scanStageRef.current = 'complete';
 
-    // Capture highest-resolution portrait frame from stream
     const canvas = document.createElement('canvas');
     canvas.width = video.videoWidth || 640;
     canvas.height = video.videoHeight || 480;
@@ -317,14 +450,14 @@ export function FaceRegistrationModal({
       setCapturedImage(b64);
     }
 
-    stopCamera();
+    stopBrowserCamera();
     setStatusMessage('Face Scan Completed Successfully');
     setInstructionMessage('Biometric verified. Please confirm employee details below.');
   };
 
-  // Main real-time detection & guided multi-angle pose tracking loop
+  // Browser FaceAPI tracking loop
   useEffect(() => {
-    if (!isOpen || !modelsLoaded || capturedImage) return;
+    if (!isOpen || cameraMode !== 'browser' || !modelsLoaded || capturedImage) return;
 
     const detectAndTrack = async () => {
       const video = videoRef.current;
@@ -361,32 +494,24 @@ export function FaceRegistrationModal({
         if (resized.length === 0) {
           setFaceDetected(false);
           setStatusMessage('No Face Detected');
-          if (isScanningActiveRef.current) {
-            setStatusMessage('No Face Detected — Please center face in box');
-          }
         } else if (resized.length > 1) {
           setFaceDetected(false);
-          setStatusMessage('Multiple Faces Detected — Please stay alone in frame');
-          // Draw red warning boxes for all faces
+          setStatusMessage('Multiple Faces Detected — Stay alone');
           resized.forEach((det) => {
             const { x, y, width, height } = det.detection.box;
-            drawBoundingBox(ctx, x, y, width, height, '#EF4444', 'Multiple Faces Detected');
+            drawBoundingBox(ctx, x, y, width, height, '#EF4444', 'Multiple Faces');
           });
         } else {
-          // Exactly 1 face
           setFaceDetected(true);
           const singleFace = resized[0];
           const { x, y, width, height } = singleFace.detection.box;
           const landmarks = singleFace.landmarks;
 
-          // Check face size: reject if too small / too far
           const minSize = Math.min(canvas.width, canvas.height) * 0.18;
           if (width < minSize || height < minSize) {
             setStatusMessage('Move Closer to Camera');
             drawBoundingBox(ctx, x, y, width, height, '#F59E0B', 'Move Closer');
           } else {
-            // Calculate Head Yaw Pose using 68 landmarks
-            // Left eye corner: 36, Right eye corner: 45, Nose tip: 30
             const leftEyeCorner = landmarks.positions[36];
             const rightEyeCorner = landmarks.positions[45];
             const noseTip = landmarks.positions[30];
@@ -394,20 +519,14 @@ export function FaceRegistrationModal({
             const eyeDist = Math.abs(rightEyeCorner.x - leftEyeCorner.x) || 1.0;
             const yawRatio = (noseTip.x - leftEyeCorner.x) / eyeDist;
 
-            // Yaw Interpretation:
-            // Center: 0.42 <= yawRatio <= 0.58
-            // Left: yawRatio < 0.40 (subject turned left on webcam view)
-            // Right: yawRatio > 0.60 (subject turned right on webcam view)
             const isCenterPose = yawRatio >= 0.40 && yawRatio <= 0.60;
             const isLeftPose = yawRatio < 0.38;
             const isRightPose = yawRatio > 0.62;
 
             if (!isScanningActiveRef.current) {
-              // Idle Ready Mode
               setStatusMessage('Face Detected — Ready for Guided Scan');
               drawBoundingBox(ctx, x, y, width, height, '#10B981', 'Ready');
             } else {
-              // ACTIVE GUIDED SCANNING MODE
               drawBoundingBox(ctx, x, y, width, height, '#06B6D4', 'Scanning Biometrics');
               drawLaserLine(ctx, x, y, width, height);
 
@@ -424,66 +543,55 @@ export function FaceRegistrationModal({
                     if (stageSamplesRef.current.front_1 >= 3) {
                       scanStageRef.current = 'turn_left';
                       setScanStage('turn_left');
-                      setInstructionMessage('Step 2/4: Turn your face slightly LEFT');
-                      setStatusMessage('Please turn face slightly left');
+                      setInstructionMessage('Step 2/4: Turn face slightly LEFT');
                     }
-                  } else {
-                    setStatusMessage('Look straight at camera');
                   }
                 } else if (currentStage === 'turn_left') {
                   if (isLeftPose) {
                     stageSamplesRef.current.turn_left += 1;
                     lastCaptureTimeRef.current = now;
                     setStatusMessage('Capturing Left Angle (2/4)...');
-                    if (stageSamplesRef.current.turn_left >= 3) {
+                    if (stageSamplesRef.current.turn_left >= 2) {
                       scanStageRef.current = 'turn_right';
                       setScanStage('turn_right');
-                      setInstructionMessage('Step 3/4: Turn your face slightly RIGHT');
-                      setStatusMessage('Please turn face slightly right');
+                      setInstructionMessage('Step 3/4: Turn face slightly RIGHT');
                     }
-                  } else {
-                    setStatusMessage('Turn face slightly LEFT');
                   }
                 } else if (currentStage === 'turn_right') {
                   if (isRightPose) {
                     stageSamplesRef.current.turn_right += 1;
                     lastCaptureTimeRef.current = now;
                     setStatusMessage('Capturing Right Angle (3/4)...');
-                    if (stageSamplesRef.current.turn_right >= 3) {
+                    if (stageSamplesRef.current.turn_right >= 2) {
                       scanStageRef.current = 'front_2';
                       setScanStage('front_2');
-                      setInstructionMessage('Step 4/4: Return to FRONT view');
-                      setStatusMessage('Look straight at camera to finalize');
+                      setInstructionMessage('Step 4/4: Look straight at camera');
                     }
-                  } else {
-                    setStatusMessage('Turn face slightly RIGHT');
                   }
                 } else if (currentStage === 'front_2') {
                   if (isCenterPose) {
                     stageSamplesRef.current.front_2 += 1;
                     lastCaptureTimeRef.current = now;
-                    setStatusMessage('Finalizing Biometric Extraction (4/4)...');
-                    if (stageSamplesRef.current.front_2 >= 2) {
-                      // Complete scan! Total 10 valid multi-angle samples!
-                      handleCompleteScan(video);
+                    setStatusMessage('Final Validation (4/4)...');
+                    if (stageSamplesRef.current.front_2 >= 3) {
+                      handleCompleteBrowserScan(video);
                       return;
                     }
                   }
                 }
 
-                // Update Progress percentage
-                const totalSamples =
-                  stageSamplesRef.current.front_1 +
-                  stageSamplesRef.current.turn_left +
-                  stageSamplesRef.current.turn_right +
+                const total = 
+                  stageSamplesRef.current.front_1 + 
+                  stageSamplesRef.current.turn_left + 
+                  stageSamplesRef.current.turn_right + 
                   stageSamplesRef.current.front_2;
-                setScanProgress(Math.min(100, Math.round((totalSamples / 11) * 100)));
+                setScanProgress(Math.min(100, Math.round((total / 10) * 100)));
               }
             }
           }
         }
       } catch (err) {
-        console.warn('Real-time face tracking frame error:', err);
+        console.warn('Browser face detection error:', err);
       }
 
       animFrameRef.current = requestAnimationFrame(detectAndTrack);
@@ -493,9 +601,36 @@ export function FaceRegistrationModal({
     return () => {
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
-  }, [isOpen, modelsLoaded, capturedImage]);
+  }, [isOpen, cameraMode, modelsLoaded, capturedImage]);
 
-  // Canvas visual helpers
+  // Hardware Canvas Overlay Renderer
+  useEffect(() => {
+    if (cameraMode !== 'hardware' || !isOpen || capturedImage) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.width = 640;
+    canvas.height = 480;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const faces = hardwareFacesRef.current;
+    if (faces.length === 1) {
+      const b = faces[0].bbox;
+      const stroke = faces[0].liveness?.is_real ? '#10B981' : '#EF4444';
+      const label = faces[0].liveness?.is_real ? 'Face Detected' : 'Anti-Spoof Alert';
+      drawBoundingBox(ctx, b.x, b.y, b.width, b.height, stroke, label);
+      if (isScanningActiveRef.current) {
+        drawLaserLine(ctx, b.x, b.y, b.width, b.height);
+      }
+    } else if (faces.length > 1) {
+      faces.forEach((f) => {
+        const b = f.bbox;
+        drawBoundingBox(ctx, b.x, b.y, b.width, b.height, '#EF4444', 'Multiple Faces');
+      });
+    }
+  });
+
   const drawBoundingBox = (
     ctx: CanvasRenderingContext2D,
     x: number,
@@ -512,7 +647,6 @@ export function FaceRegistrationModal({
     ctx.shadowBlur = 10;
 
     const corner = Math.min(w, h) * 0.22;
-    // Corners
     ctx.beginPath();
     ctx.moveTo(x, y + corner); ctx.lineTo(x, y); ctx.lineTo(x + corner, y);
     ctx.moveTo(x + w - corner, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + corner);
@@ -520,7 +654,6 @@ export function FaceRegistrationModal({
     ctx.moveTo(x + corner, y + h); ctx.lineTo(x, y + h); ctx.lineTo(x, y + h - corner);
     ctx.stroke();
 
-    // Label Badge
     ctx.fillStyle = color;
     ctx.font = 'bold 12px Inter, sans-serif';
     const textWidth = ctx.measureText(label).width;
@@ -574,7 +707,7 @@ export function FaceRegistrationModal({
     }
 
     if (!capturedImage) {
-      setError('Please complete the guided face scan first.');
+      setError('Please capture or upload a face photo first.');
       return;
     }
 
@@ -582,7 +715,6 @@ export function FaceRegistrationModal({
       setLoading(true);
       setError(null);
 
-      // Call dedicated Facenox registration API endpoint
       const res = await api.post('/employees/register-facenox', {
         name: name.trim(),
         employee_id: employeeId.trim(),
@@ -615,7 +747,7 @@ export function FaceRegistrationModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
       <div className="bg-surface border border-border w-full max-w-xl rounded-2xl shadow-2xl flex flex-col overflow-hidden max-h-[92vh] animate-in zoom-in-95 duration-200">
         
-        {/* Header */}
+        {/* Header with Camera Mode Selector */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-surface-hover/40">
           <div className="flex items-center gap-2.5">
             <div className="p-2 bg-cyan-500/10 rounded-lg border border-cyan-500/20 text-cyan-400">
@@ -623,15 +755,54 @@ export function FaceRegistrationModal({
             </div>
             <div>
               <h2 className="text-lg font-bold text-text">Biometric Face Enrollment</h2>
-              <p className="text-xs text-text-muted">Multi-Angle Guided Scan &bull; Anti-Spoof &bull; ArcFace 512d</p>
+              <p className="text-xs text-text-muted">YuNet &bull; Multi-Angle &bull; Anti-Spoof &bull; ArcFace 512d</p>
             </div>
           </div>
-          <button 
-            onClick={onClose}
-            className="p-1.5 text-text-muted hover:text-text rounded-lg hover:bg-surface transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+
+          <div className="flex items-center gap-2">
+            {/* Camera Mode Toggle */}
+            <div className="flex items-center bg-[#0a0f1d] p-1 rounded-xl border border-border text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setCameraMode('hardware');
+                  setCameraError(null);
+                }}
+                className={`px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1 transition-all ${
+                  cameraMode === 'hardware'
+                    ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-sm'
+                    : 'text-text-muted hover:text-white'
+                }`}
+                title="DirectShow Native Hardware WebCam (Bypasses Browser Security Barriers)"
+              >
+                <Cpu className="w-3 h-3 text-cyan-300" />
+                <span>Direct USB WebCam</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setCameraMode('browser');
+                  setCameraError(null);
+                }}
+                className={`px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1 transition-all ${
+                  cameraMode === 'browser'
+                    ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-sm'
+                    : 'text-text-muted hover:text-white'
+                }`}
+                title="Browser WebRTC Media Stream"
+              >
+                <Camera className="w-3 h-3 text-cyan-300" />
+                <span>Browser Cam</span>
+              </button>
+            </div>
+
+            <button 
+              onClick={onClose}
+              className="p-1.5 text-text-muted hover:text-text rounded-lg hover:bg-surface transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Content Body */}
@@ -666,7 +837,7 @@ export function FaceRegistrationModal({
                   </div>
                 )}
                 <div className="pt-1 text-center text-xs text-emerald-400 font-medium bg-emerald-500/10 py-1.5 rounded-lg border border-emerald-500/20">
-                  ✓ Face Enrolled: ArcFace 512-d (Encrypted)
+                  ✓ Face Enrolled: ArcFace 512-d (Encrypted AES-GCM)
                 </div>
               </div>
 
@@ -681,7 +852,7 @@ export function FaceRegistrationModal({
                     setWorkLocation('');
                     setEmail('');
                     setPhone('');
-                    startCamera();
+                    setCapturedImage(null);
                   }}
                   className="px-4 py-2 bg-surface hover:bg-surface-hover border border-border text-text rounded-lg text-xs font-semibold transition-colors"
                 >
@@ -699,9 +870,23 @@ export function FaceRegistrationModal({
             <>
               {/* Error Banners */}
               {cameraError && (
-                <div className="bg-danger/10 border border-danger/20 text-danger p-3.5 rounded-xl text-xs flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 shrink-0" />
-                  <span>{cameraError}</span>
+                <div className="bg-danger/10 border border-danger/20 text-danger p-3 rounded-xl text-xs flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    <span>{cameraError}</span>
+                  </div>
+                  {cameraMode === 'browser' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCameraMode('hardware');
+                        setCameraError(null);
+                      }}
+                      className="px-2.5 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded text-[11px] font-semibold whitespace-nowrap"
+                    >
+                      Use USB WebCam
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -718,6 +903,9 @@ export function FaceRegistrationModal({
                   <span className="flex items-center gap-1.5 font-semibold text-text">
                     <Camera className="w-3.5 h-3.5 text-cyan-400" />
                     Live Biometric Scan
+                    <span className="text-[10px] text-text-muted font-normal">
+                      ({cameraMode === 'hardware' ? 'USB DirectShow' : 'Browser WebRTC'})
+                    </span>
                   </span>
                   <span className={`px-2.5 py-0.5 rounded-full border text-[11px] font-semibold flex items-center gap-1.5 ${
                     capturedImage 
@@ -741,9 +929,45 @@ export function FaceRegistrationModal({
                       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex items-end p-4">
                         <div className="text-white text-xs font-semibold flex items-center gap-2 bg-emerald-600/80 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-emerald-400/30">
                           <CheckCircle2 className="w-4 h-4 text-emerald-200" />
-                          Multi-Angle Biometric Scan Completed (100%)
+                          Face Photo Confirmed (100%)
                         </div>
                       </div>
+                    </div>
+                  ) : cameraMode === 'hardware' ? (
+                    hardwareFrame ? (
+                      <div className="relative w-full h-full">
+                        <img 
+                          src={hardwareFrame} 
+                          alt="Hardware Live WebCam" 
+                          className="w-full h-full object-cover" 
+                        />
+                        <canvas 
+                          ref={canvasRef} 
+                          className="absolute inset-0 w-full h-full pointer-events-none" 
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center h-full gap-2 text-text-muted text-xs">
+                        <RefreshCw className="w-6 h-6 animate-spin text-cyan-400" />
+                        <span>Connecting to USB WebCam...</span>
+                      </div>
+                    )
+                  ) : cameraMode === 'browser' && cameraError ? (
+                    <div className="flex flex-col items-center justify-center h-full p-6 text-center gap-3">
+                      <CameraOff className="w-10 h-10 text-rose-400" />
+                      <p className="text-xs text-rose-300 max-w-sm">
+                        Browser camera access not available. Switch to <strong>Direct USB WebCam</strong> below.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCameraMode('hardware');
+                          setCameraError(null);
+                        }}
+                        className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-md"
+                      >
+                        <Cpu className="w-3.5 h-3.5" /> Switch to Direct USB WebCam
+                      </button>
                     </div>
                   ) : (
                     <>
@@ -795,10 +1019,12 @@ export function FaceRegistrationModal({
                 <div className="flex items-center justify-between pt-1">
                   <p className="text-xs text-text-muted">
                     {capturedImage 
-                      ? '✓ Face Scan Completed. Complete employee details below.' 
+                      ? '✓ Face Photo Confirmed. Fill employee details below.' 
                       : isScanningActive 
                       ? 'Follow the on-screen head turn instructions.' 
-                      : 'Center face in box and click Start Guided Scan.'}
+                      : faceDetected 
+                      ? 'Face detected! Click "Capture Face" to lock photo.' 
+                      : 'Center face in camera view.'}
                   </p>
 
                   <input 
@@ -811,16 +1037,22 @@ export function FaceRegistrationModal({
 
                   {capturedImage ? (
                     <button 
-                      onClick={startCamera}
+                      onClick={() => {
+                        setCapturedImage(null);
+                        setScanProgress(0);
+                        setScanStage('front_1');
+                        scanStageRef.current = 'front_1';
+                      }}
                       disabled={loading}
                       className="flex items-center gap-1.5 text-xs bg-surface hover:bg-surface-hover text-text px-3 py-1.5 rounded-lg border border-border transition-colors font-semibold"
                     >
                       <RefreshCw className="w-3.5 h-3.5" />
-                      Retake Scan
+                      Retake Photo
                     </button>
                   ) : (
                     <div className="flex items-center gap-2">
                       <button
+                        type="button"
                         onClick={() => fileInputRef.current?.click()}
                         className="flex items-center gap-1.5 text-xs bg-surface hover:bg-surface-hover text-text px-3 py-1.5 rounded-lg border border-border transition-colors font-medium cursor-pointer"
                         title="Upload a clear portrait photo"
@@ -828,24 +1060,38 @@ export function FaceRegistrationModal({
                         <Upload className="w-3.5 h-3.5 text-cyan-400" />
                         <span>Upload Photo</span>
                       </button>
-                      <button 
-                        onClick={handleStartGuidedScan}
-                        disabled={!modelsLoaded || isScanningActive || !faceDetected}
-                        className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 disabled:opacity-40 text-white px-5 py-2 rounded-lg font-semibold text-xs shadow-md transition-all cursor-pointer disabled:cursor-not-allowed"
-                      >
-                        {isScanningActive ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
-                        {isScanningActive ? 'Scanning Angles...' : 'Start Guided Scan'}
-                      </button>
+
+                      {cameraMode === 'hardware' ? (
+                        <button 
+                          type="button"
+                          onClick={handleCaptureInstantHardware}
+                          disabled={!hardwareFrame}
+                          className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 disabled:opacity-40 text-white px-4 py-2 rounded-lg font-semibold text-xs shadow-md transition-all cursor-pointer disabled:cursor-not-allowed"
+                        >
+                          <Camera className="w-3.5 h-3.5" />
+                          <span>Capture Face</span>
+                        </button>
+                      ) : (
+                        <button 
+                          type="button"
+                          onClick={handleStartGuidedScan}
+                          disabled={!modelsLoaded || isScanningActive || !faceDetected}
+                          className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 disabled:opacity-40 text-white px-5 py-2 rounded-lg font-semibold text-xs shadow-md transition-all cursor-pointer disabled:cursor-not-allowed"
+                        >
+                          {isScanningActive ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
+                          {isScanningActive ? 'Scanning Angles...' : 'Start Guided Scan'}
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* SECTION 2: Manual Employee Registration Form */}
+              {/* SECTION 2: Manual Employee Registration Form (Step A4) */}
               <div className="space-y-3.5 pt-3 border-t border-border">
                 <div className="flex items-center justify-between">
                   <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted">
-                    Employee Information Form
+                    Manual Employee Information Form
                   </h3>
                   <span className="text-[10px] text-text-muted">* Required fields</span>
                 </div>
@@ -907,7 +1153,7 @@ export function FaceRegistrationModal({
                       type="text" 
                       value={department}
                       onChange={(e) => setDepartment(e.target.value)}
-                      placeholder="e.g. Surveillance Operations"
+                      placeholder="e.g. Operations / IT"
                       className="w-full bg-[#0a0f1d] border border-border/80 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-500 text-white placeholder-text-muted"
                     />
                   </div>
@@ -921,7 +1167,7 @@ export function FaceRegistrationModal({
                       type="text" 
                       value={designation}
                       onChange={(e) => setDesignation(e.target.value)}
-                      placeholder="e.g. Senior Analyst"
+                      placeholder="e.g. Security Supervisor"
                       className="w-full bg-[#0a0f1d] border border-border/80 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-500 text-white placeholder-text-muted"
                     />
                   </div>
@@ -935,27 +1181,13 @@ export function FaceRegistrationModal({
                       type="text" 
                       value={workLocation}
                       onChange={(e) => setWorkLocation(e.target.value)}
-                      placeholder="e.g. Headquarters Block A"
+                      placeholder="e.g. Main Gate / HQ"
                       className="w-full bg-[#0a0f1d] border border-border/80 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-500 text-white placeholder-text-muted"
                     />
                   </div>
 
-                  {/* Email */}
+                  {/* Mobile Phone */}
                   <div className="space-y-1">
-                    <label className="text-xs font-semibold text-text-muted flex items-center gap-1">
-                      <Mail className="w-3.5 h-3.5" /> Email Address
-                    </label>
-                    <input 
-                      type="email" 
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="e.g. user@company.com"
-                      className="w-full bg-[#0a0f1d] border border-border/80 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-500 text-white placeholder-text-muted"
-                    />
-                  </div>
-
-                  {/* Mobile Number */}
-                  <div className="space-y-1 col-span-2">
                     <label className="text-xs font-semibold text-text-muted flex items-center gap-1">
                       <Phone className="w-3.5 h-3.5" /> Mobile Number
                     </label>
@@ -968,39 +1200,44 @@ export function FaceRegistrationModal({
                     />
                   </div>
                 </div>
+
+                {/* Email Address */}
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-text-muted flex items-center gap-1">
+                    <Mail className="w-3.5 h-3.5" /> Email Address
+                  </label>
+                  <input 
+                    type="email" 
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="e.g. employee@company.com"
+                    className="w-full bg-[#0a0f1d] border border-border/80 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-500 text-white placeholder-text-muted"
+                  />
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-border">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-4 py-2 bg-surface hover:bg-surface-hover border border-border text-text rounded-lg text-xs font-semibold transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveAndRegister}
+                  disabled={loading || !capturedImage || !name.trim() || !employeeId.trim() || idCheckStatus === 'taken'}
+                  className="px-5 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:opacity-40 text-white rounded-lg text-xs font-semibold shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
+                >
+                  {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                  <span>{loading ? 'Encrypting & Saving...' : 'Save & Register Employee'}</span>
+                </button>
               </div>
             </>
           )}
         </div>
-
-        {/* Footer Actions */}
-        {!registrationSuccess && (
-          <div className="px-6 py-4 border-t border-border bg-surface-hover/40 flex items-center justify-between">
-            <div className="text-[11px] text-text-muted">
-              {capturedImage 
-                ? 'Biometric features ready for persistence.' 
-                : 'Complete the face scan to enable registration.'}
-            </div>
-
-            <div className="flex gap-2.5">
-              <button 
-                onClick={onClose}
-                className="px-4 py-2 text-text-muted hover:text-text hover:bg-surface border border-transparent rounded-lg transition-colors text-xs font-semibold"
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={handleSaveAndRegister}
-                disabled={loading || !capturedImage || !name.trim() || !employeeId.trim() || idCheckStatus === 'taken'}
-                className="flex items-center gap-2 px-6 py-2 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 disabled:opacity-40 text-white rounded-lg transition-colors text-xs font-semibold shadow-md disabled:cursor-not-allowed cursor-pointer"
-              >
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                Save &amp; Register Employee
-              </button>
-            </div>
-          </div>
-        )}
-
       </div>
     </div>
   );
