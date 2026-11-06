@@ -1,11 +1,12 @@
 import uuid
-from typing import Optional
+from typing import Optional, Any, List
 
 from sqlalchemy import delete, select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.employee import Employee
 from app.schemas.employee import EmployeeCreate
+from app.core.biometrics import biometric_vault
 
 
 class EmployeeRepository:
@@ -22,15 +23,34 @@ class EmployeeRepository:
 
     async def get_by_employee_id(self, employee_id: str) -> Optional[Employee]:
         """Get an employee by their unique string employee_id."""
-        stmt = select(Employee).where(Employee.employee_id == employee_id)
+        stmt = select(Employee).where(Employee.employee_id == employee_id.strip())
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def exists_employee_id(self, employee_id: str) -> bool:
+        """Check if an employee ID already exists."""
+        stmt = select(func.count()).select_from(Employee).where(Employee.employee_id == employee_id.strip())
+        result = await self.db.execute(stmt)
+        return (result.scalar_one() or 0) > 0
+
     async def list_all_with_encodings(self) -> list[Employee]:
-        """List all employees that have a face encoding."""
+        """
+        List all employees that have a face encoding.
+        Attaches in-memory decrypted embedding for recognition tasks.
+        """
         stmt = select(Employee).where(Employee.face_encoding.is_not(None))
         result = await self.db.execute(stmt)
-        return list(result.scalars().all())
+        employees = list(result.scalars().all())
+
+        # Attach decrypted float vector dynamically without modifying DB state
+        for emp in employees:
+            if emp.face_encoding is not None:
+                decrypted = biometric_vault.decrypt(emp.face_encoding)
+                setattr(emp, "decrypted_embedding", decrypted)
+            else:
+                setattr(emp, "decrypted_embedding", None)
+
+        return employees
 
     async def list_employees(self, skip: int = 0, limit: int = 200, search: Optional[str] = None) -> tuple[int, list[Employee]]:
         """List employees paginated with optional search filter."""
@@ -54,14 +74,24 @@ class EmployeeRepository:
         items = list(result.scalars().all())
         return total, items
 
-    async def create(self, obj_in: EmployeeCreate, face_encoding: list[float]) -> Employee:
-        """Create a new employee with face encoding."""
+    async def create(self, obj_in: EmployeeCreate, face_encoding: Optional[Any] = None) -> Employee:
+        """
+        Create a new employee with encrypted biometric face encoding.
+        """
+        raw_encoding = face_encoding if face_encoding is not None else obj_in.face_encoding
+        persisted_encoding = raw_encoding
+
+        # Encrypt at rest with AES-256-GCM if raw float list
+        if isinstance(raw_encoding, list):
+            model_name = "facenox-arcface-512d" if len(raw_encoding) == 512 else "legacy-face-api"
+            persisted_encoding = biometric_vault.encrypt(raw_encoding, model_name=model_name)
+
         db_obj = Employee(
-            name=obj_in.name,
-            employee_id=obj_in.employee_id,
-            face_encoding=face_encoding,
-            department=obj_in.department,
-            designation=obj_in.designation
+            name=obj_in.name.strip(),
+            employee_id=obj_in.employee_id.strip(),
+            face_encoding=persisted_encoding,
+            department=obj_in.department.strip() if obj_in.department else None,
+            designation=obj_in.designation.strip() if obj_in.designation else None
         )
         self.db.add(db_obj)
         await self.db.commit()
@@ -101,12 +131,18 @@ class EmployeeRepository:
 
         return result.rowcount > 0
 
-    async def update_face_encoding(self, employee_id: str, face_encoding: list[float]) -> Optional[Employee]:
-        """Update or set face encoding for an employee."""
+    async def update_face_encoding(self, employee_id: str, face_encoding: Any) -> Optional[Employee]:
+        """Update or set face encoding for an employee, encrypting at rest."""
         emp = await self.get_by_employee_id(employee_id)
         if not emp:
             return None
-        emp.face_encoding = face_encoding
+
+        persisted_encoding = face_encoding
+        if isinstance(face_encoding, list):
+            model_name = "facenox-arcface-512d" if len(face_encoding) == 512 else "legacy-face-api"
+            persisted_encoding = biometric_vault.encrypt(face_encoding, model_name=model_name)
+
+        emp.face_encoding = persisted_encoding
         await self.db.commit()
         await self.db.refresh(emp)
 
@@ -115,7 +151,7 @@ class EmployeeRepository:
             mongo_db = get_async_db()
             await mongo_db.employees.update_one(
                 {"employee_id": employee_id},
-                {"$set": {"face_encoding": face_encoding}}
+                {"$set": {"face_encoding": persisted_encoding}}
             )
         except Exception:
             pass

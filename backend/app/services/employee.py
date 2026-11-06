@@ -1,52 +1,79 @@
 import time
 import uuid
 import math
+import logging
 from typing import Optional
+import numpy as np
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.employee import Employee
 from app.repositories.employee import EmployeeRepository
-from app.schemas.employee import EmployeeCreate, EmployeeRecognizeRequest, EmployeeRecognizeResponse, EmployeeResponse
-
-import logging
+from app.schemas.employee import (
+    EmployeeCreate,
+    EmployeeRecognizeRequest,
+    EmployeeRecognizeResponse,
+    EmployeeResponse,
+    EmployeeCheckIdResponse,
+)
 
 logger = logging.getLogger(__name__)
+
 
 def calculate_euclidean_distance(emb1: list[float], emb2: list[float]) -> float:
     if not emb1 or not emb2 or len(emb1) != len(emb2):
         return float('inf')
     return math.sqrt(sum((a - b) ** 2 for a, b in zip(emb1, emb2)))
 
+
 class EmployeeService:
-    """Service handling employee registration and face recognition."""
+    """Service handling employee registration, ID validation, and facial recognition."""
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
         self.repo = EmployeeRepository(db)
 
+    async def check_id(self, employee_id: str) -> EmployeeCheckIdResponse:
+        """Validate if an employee ID already exists in the system."""
+        emp = await self.repo.get_by_employee_id(employee_id)
+        if not emp:
+            return EmployeeCheckIdResponse(
+                exists=False,
+                employee_id=employee_id.strip()
+            )
+
+        resp = EmployeeResponse.model_validate(emp)
+        return EmployeeCheckIdResponse(
+            exists=True,
+            employee_id=emp.employee_id,
+            name=emp.name,
+            department=emp.department,
+            designation=emp.designation,
+            is_enrolled=resp.is_enrolled,
+        )
+
     async def register_employee(self, obj_in: EmployeeCreate) -> Employee:
-        """Register a new employee and their face encoding."""
-        
+        """Register a new employee and encrypt their face encoding at rest."""
         # Check if employee_id already exists
         existing = await self.repo.get_by_employee_id(obj_in.employee_id)
         if existing:
             logger.warning("Employee registration conflict for ID: %s", obj_in.employee_id)
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Employee with this ID already exists"
+                detail=f"Employee with ID '{obj_in.employee_id}' already exists."
             )
 
-        if obj_in.face_encoding is not None and len(obj_in.face_encoding) != 128:
-            logger.warning("Invalid face encoding dimension (%s) for employee ID: %s", len(obj_in.face_encoding), obj_in.employee_id)
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid face encoding provided. Must be 128-dimensional array."
-            )
+        # Allow 128-d (face-api) or 512-d (Facenox ArcFace)
+        if obj_in.face_encoding is not None:
+            if isinstance(obj_in.face_encoding, list) and len(obj_in.face_encoding) not in (128, 512):
+                logger.warning("Invalid face encoding dimension (%s) for employee ID: %s", len(obj_in.face_encoding), obj_in.employee_id)
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid face encoding provided. Must be a 128-d or 512-d float array."
+                )
 
-        logger.info("Registering employee '%s' (%s) with 128-d face encoding", obj_in.name, obj_in.employee_id)
-        # Save to DB
+        logger.info("Registering employee '%s' (%s) with encrypted biometric template", obj_in.name, obj_in.employee_id)
         return await self.repo.create(obj_in, face_encoding=obj_in.face_encoding)
 
     async def recognize_face(self, obj_in: EmployeeRecognizeRequest) -> EmployeeRecognizeResponse:
@@ -66,7 +93,7 @@ class EmployeeService:
                         "employee_id": emp.employee_id,
                         "department": emp.department,
                         "designation": emp.designation,
-                        "face_encoding": emp.face_encoding
+                        "face_encoding": getattr(emp, "decrypted_embedding", None) or emp.face_encoding
                     }
                     for emp in employees if emp.face_encoding
                 ]
@@ -90,7 +117,7 @@ class EmployeeService:
             logger.warning("Recognition rejected: invalid or missing face embedding")
             return EmployeeRecognizeResponse(match_found=False)
 
-        # Fetch all employees with encodings
+        # Fetch all employees with encodings (auto-decrypted in memory)
         employees = await self.repo.list_all_with_encodings()
         
         best_match = None
@@ -101,18 +128,19 @@ class EmployeeService:
         threshold = 0.55 if is_512d else settings.FACE_RECOGNITION_THRESHOLD
 
         for employee in employees:
-            if not employee.face_encoding or len(employee.face_encoding) != len(incoming_embedding):
+            emb = getattr(employee, "decrypted_embedding", None) or employee.face_encoding
+            if not emb or len(emb) != len(incoming_embedding):
                 continue
             
             if is_512d:
                 # Cosine similarity for 512-d ArcFace
-                sim = float(np.dot(incoming_embedding, employee.face_encoding))
+                sim = float(np.dot(incoming_embedding, emb))
                 if sim >= threshold and sim > best_similarity:
                     best_match = employee
                     best_similarity = sim
             else:
                 # Euclidean distance for 128-d
-                distance = calculate_euclidean_distance(incoming_embedding, employee.face_encoding)
+                distance = calculate_euclidean_distance(incoming_embedding, emb)
                 if distance < threshold and distance < best_distance:
                     best_match = employee
                     best_distance = distance
@@ -156,30 +184,11 @@ class EmployeeService:
             )
             
         logger.info(
-            "Face recognition result: match_found=False, best_distance=%.4f (threshold=%.2f), checked_count=%d, duration=%.2fms",
-            best_distance if best_distance != float('inf') else -1.0, threshold, len(employees), elapsed_ms
+            "Face recognition result: match_found=False, checked_count=%d, duration=%.2fms",
+            len(employees), elapsed_ms
         )
-
-        if settings.LOG_UNKNOWN_RECOGNITIONS:
-            try:
-                from app.repositories.recognition_history import RecognitionHistoryRepository
-                from app.schemas.recognition_history import RecognitionHistoryCreate
-
-                history_repo = RecognitionHistoryRepository(self.db)
-                await history_repo.create(RecognitionHistoryCreate(
-                    employee_uuid=None,
-                    employee_id=None,
-                    employee_name="Unknown Person",
-                    confidence=0.0,
-                    camera_name="Live Camera",
-                    status="Unknown"
-                ))
-            except Exception as e:
-                logger.warning("Failed to auto-log unknown recognition history: %s", e)
-
         return EmployeeRecognizeResponse(match_found=False)
 
     async def remove_face_encoding(self, employee_id: str) -> Optional[Employee]:
-        """Unenroll an employee's face encoding while preserving the employee profile."""
-        logger.info("Removing face encoding for employee ID: %s", employee_id)
+        """Remove face biometric template for an employee."""
         return await self.repo.remove_face_encoding(employee_id)

@@ -5,7 +5,6 @@ import {
   UserSquare2, 
   CalendarClock, 
   AlertCircle,
-  MoreVertical,
   Users,
   Scan,
   Plus,
@@ -13,7 +12,8 @@ import {
   Clock,
   CloudDownload,
   CheckCircle2,
-  Zap
+  Zap,
+  Trash2
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { PageHeader } from '../components/ui/PageHeader';
@@ -44,8 +44,21 @@ export default function Attendance() {
   
   // Registration Modal State
   const [isRegistrationModalOpen, setIsRegistrationModalOpen] = useState(false);
+  const [selectedEmployee, setSelectedEmployee] = useState<any | null>(null);
   const [isManualRegistrationOpen, setIsManualRegistrationOpen] = useState(false);
   const [isRecognitionModalOpen, setIsRecognitionModalOpen] = useState(false);
+
+  const handleDeleteFace = async (emp: any) => {
+    if (!window.confirm(`Are you sure you want to remove biometric face data for ${emp.name} (${emp.employee_id})? The employee profile will be preserved.`)) {
+      return;
+    }
+    try {
+      await api.delete(`/employees/${encodeURIComponent(emp.employee_id)}/face`);
+      await fetchData();
+    } catch (err: any) {
+      alert('Failed to remove face biometric: ' + (err.response?.data?.detail || err.message));
+    }
+  };
 
   useEffect(() => {
     fetchData();
@@ -389,9 +402,40 @@ export default function Attendance() {
                           </Badge>
                         </td>
                         <td className="px-5 py-3.5 text-right">
-                          <button className="p-1 rounded-lg text-text-muted hover:text-white hover:bg-white/5 transition-colors">
-                            <MoreVertical className="w-4 h-4" />
-                          </button>
+                          {!emp.is_enrolled ? (
+                            <button
+                              onClick={() => {
+                                setSelectedEmployee(emp);
+                                setIsRegistrationModalOpen(true);
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 rounded-lg text-[11px] font-semibold transition-colors"
+                              title="Enroll Face Biometrics"
+                            >
+                              <UserSquare2 className="w-3 h-3" />
+                              <span>Enroll Face</span>
+                            </button>
+                          ) : (
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => {
+                                  setSelectedEmployee(emp);
+                                  setIsRegistrationModalOpen(true);
+                                }}
+                                className="inline-flex items-center gap-1 px-2 py-1 bg-white/5 hover:bg-white/10 text-text-muted hover:text-white border border-border/80 rounded-lg text-[11px] font-medium transition-colors"
+                                title="Re-enroll Face Biometrics"
+                              >
+                                <RefreshCw className="w-3 h-3" />
+                                <span>Re-enroll</span>
+                              </button>
+                              <button
+                                onClick={() => handleDeleteFace(emp)}
+                                className="inline-flex items-center p-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded-lg text-[11px] transition-colors"
+                                title="Delete Face Biometric"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     ))
@@ -459,10 +503,14 @@ export default function Attendance() {
       {/* Existing Preserved Modals */}
       <FaceRegistrationModal 
         isOpen={isRegistrationModalOpen} 
-        onClose={() => setIsRegistrationModalOpen(false)} 
+        onClose={() => {
+          setIsRegistrationModalOpen(false);
+          setSelectedEmployee(null);
+        }} 
         onSuccess={() => {
           fetchData();
         }}
+        initialEmployee={selectedEmployee}
       />
 
       <ManualRegistrationModal 

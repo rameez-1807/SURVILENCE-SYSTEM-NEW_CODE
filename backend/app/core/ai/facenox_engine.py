@@ -261,3 +261,4 @@ class FacenoxEngine:
 
 # Global singleton instance
 facenox_engine = FacenoxEngine()
+

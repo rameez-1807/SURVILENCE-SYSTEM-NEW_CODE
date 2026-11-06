@@ -1,14 +1,16 @@
 """
 AI Surveillance System - Attendance API Router
 
-Endpoints for listing, creating, and syncing HRMS attendance records.
+Endpoints for listing, creating, and syncing HRMS attendance records,
+plus real-time Facenox on-device biometric scanning with anti-spoofing and auto-attendance.
 """
 
 import asyncio
 import time
 from concurrent.futures import ThreadPoolExecutor
 import logging
-from datetime import date as DateType
+from datetime import datetime, date as DateType
+from zoneinfo import ZoneInfo
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, status
@@ -22,6 +24,8 @@ from app.schemas.attendance import (
 )
 from app.schemas.employee import FacenoxFrameScanRequest
 from app.services.attendance import AttendanceService
+from app.repositories.attendance import AttendanceRepository
+from app.repositories.employee import EmployeeRepository
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +34,9 @@ _executor = ThreadPoolExecutor(max_workers=2)
 
 # In-memory cooldown (employee_id -> last_marked_timestamp)
 _facenox_cooldown: dict[str, float] = {}
-COOLDOWN_SECONDS = 60.0
+COOLDOWN_SECONDS = 30.0
+
+ATTENDANCE_TZ = ZoneInfo("Asia/Kolkata")
 
 
 @router.get("", response_model=AttendanceListResponse)
@@ -81,11 +87,12 @@ async def scan_frame_facenox(
       3. Anti-Spoofing Liveness check (rejects digital photos / mobile replays)
       4. SOTA ArcFace 512-d normalized embedding extraction
       5. Vectorized Cosine Similarity matching against MySQL enrolled employees
-      6. If recognized and liveness passes, automatically logs attendance in MySQL!
+      6. Timezone-aware (Asia/Kolkata) automatic attendance marking:
+         - New check-in: creates row in attendance_records
+         - Repeat observation: updates last_seen timestamp
+         - Idempotent with cooldown to prevent frame spamming
     """
-    from datetime import datetime, timezone
     from app.core.ai.facenox_engine import facenox_engine
-    from app.repositories.employee import EmployeeRepository
 
     if not facenox_engine.is_ready:
         return {
@@ -104,7 +111,7 @@ async def scan_frame_facenox(
             "faces": []
         }
 
-    # Fetch enrolled employees from MySQL
+    # Fetch enrolled employees from MySQL with in-memory decrypted embeddings
     emp_repo = EmployeeRepository(db)
     employees = await emp_repo.list_all_with_encodings()
     emp_records = [
@@ -114,9 +121,9 @@ async def scan_frame_facenox(
             "employee_id": emp.employee_id,
             "department": emp.department,
             "designation": emp.designation,
-            "face_encoding": emp.face_encoding
+            "face_encoding": getattr(emp, "decrypted_embedding", None) or emp.face_encoding
         }
-        for emp in employees if emp.face_encoding
+        for emp in employees if (getattr(emp, "decrypted_embedding", None) or emp.face_encoding)
     ]
 
     # Run complete Facenox pipeline
@@ -129,62 +136,106 @@ async def scan_frame_facenox(
     )
 
     attendance_events = []
-    now = datetime.now()
-    today_date = now.date()
-    current_time_str = now.strftime("%H:%M:%S")
+    # Timezone-aware current time in Asia/Kolkata
+    now_ist = datetime.now(ATTENDANCE_TZ)
+    today_date = now_ist.date()
+    current_time = now_ist.time()
+    current_time_str = now_ist.strftime("%H:%M:%S")
 
-    # If employee is matched & liveness is verified real, auto-mark attendance
+    att_repo = AttendanceRepository(db)
+
+    # Process attendance for recognized real human faces
     for face in faces:
         face["attendance_marked"] = False
+        face["attendance_already_marked"] = False
         face["attendance_cooldown"] = False
 
         if face.get("match_found") and face.get("employee"):
             emp_info = face["employee"]
             emp_id = emp_info["employee_id"]
+            emp_uuid = emp_info["id"]
             is_real = face.get("liveness", {}).get("is_real", True)
 
             # Block spoofing attacks
             if not is_real:
-                face["attendance_blocked_reason"] = "Anti-spoofing triggered: spoof detected"
+                face["attendance_blocked_reason"] = "Anti-spoofing alert: digital photo or screen replay detected"
                 continue
 
-            # Check duplicate cooldown
+            # Query existing attendance record for today in MySQL
+            existing_record = None
+            try:
+                import uuid as _uuid
+                existing_record = await att_repo.get_by_employee_and_date(
+                    _uuid.UUID(str(emp_uuid)),
+                    today_date
+                )
+            except Exception as e:
+                logger.debug("Error checking existing attendance: %s", e)
+
+            # Cooldown check for repeated frames
             last_marked = _facenox_cooldown.get(emp_id, 0.0)
-            if (time.time() - last_marked) < COOLDOWN_SECONDS:
-                face["attendance_cooldown"] = True
-                face["attendance_message"] = f"Already marked check-in ({round(COOLDOWN_SECONDS - (time.time() - last_marked))}s cooldown)"
-                continue
+            in_cooldown = (time.time() - last_marked) < COOLDOWN_SECONDS
 
-            if payload.auto_mark_attendance:
-                try:
-                    att_service = AttendanceService(db)
-                    rec = await att_service.create_record(AttendanceRecordCreate(
-                        employee_id=emp_id,
-                        attendance_date=today_date,
-                        first_seen=now.time(),
-                        last_seen=now.time(),
-                        camera_name=payload.camera_name,
-                        confidence=int(face.get("confidence", 0.95) * 100),
-                    ))
-                    _facenox_cooldown[emp_id] = time.time()
-                    face["attendance_marked"] = True
-                    face["attendance_time"] = current_time_str
-                    attendance_events.append({
-                        "employee_id": emp_id,
-                        "name": emp_info["name"],
-                        "time": current_time_str,
-                        "confidence": face.get("confidence"),
-                    })
-                    logger.info("Facenox Attendance Auto-Marked: %s at %s", emp_info["name"], current_time_str)
-                except Exception as exc:
-                    logger.warning("Facenox attendance auto-mark error for %s: %s", emp_id, exc)
+            if existing_record:
+                # Employee has already checked in today!
+                face["attendance_already_marked"] = True
+                first_seen_str = existing_record.first_seen.strftime("%H:%M:%S") if existing_record.first_seen else current_time_str
+                face["attendance_time"] = first_seen_str
+                face["attendance_message"] = f"Attendance Already Marked (Check-in at {first_seen_str})"
+
+                if not in_cooldown and payload.auto_mark_attendance:
+                    try:
+                        # Update last_seen on existing record
+                        await att_repo.update_last_seen(
+                            existing_record,
+                            current_time,
+                            int(face.get("confidence", 0.95) * 100)
+                        )
+                        _facenox_cooldown[emp_id] = time.time()
+                    except Exception as err:
+                        logger.warning("Failed to update last_seen for %s: %s", emp_id, err)
+
+                if in_cooldown:
+                    face["attendance_cooldown"] = True
+            else:
+                # First check-in of the day!
+                if payload.auto_mark_attendance and not in_cooldown:
+                    try:
+                        import uuid as _uuid
+                        rec = await att_repo.create(
+                            AttendanceRecordCreate(
+                                employee_id=emp_id,
+                                attendance_date=today_date,
+                                first_seen=current_time,
+                                last_seen=current_time,
+                                camera_name=payload.camera_name,
+                                confidence=int(face.get("confidence", 0.95) * 100),
+                            ),
+                            employee_uuid=_uuid.UUID(str(emp_uuid))
+                        )
+                        _facenox_cooldown[emp_id] = time.time()
+                        face["attendance_marked"] = True
+                        face["attendance_time"] = current_time_str
+                        face["attendance_message"] = f"Attendance Marked Successfully ({current_time_str})"
+
+                        attendance_events.append({
+                            "employee_id": emp_id,
+                            "name": emp_info["name"],
+                            "time": current_time_str,
+                            "status": "Checked In",
+                            "confidence": face.get("confidence"),
+                        })
+                        logger.info("Facenox Attendance Auto-Marked: %s at %s IST", emp_info["name"], current_time_str)
+                    except Exception as exc:
+                        logger.warning("Facenox attendance auto-mark error for %s: %s", emp_id, exc)
 
     return {
         "success": True,
         "engine": "Facenox AI (YuNet + Anti-Spoofing + ArcFace 512d)",
         "faces_detected": len(faces),
         "faces": faces,
-        "attendance_events": attendance_events
+        "attendance_events": attendance_events,
+        "timestamp_ist": current_time_str,
     }
 
 

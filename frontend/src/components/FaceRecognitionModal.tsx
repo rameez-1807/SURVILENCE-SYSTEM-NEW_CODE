@@ -6,7 +6,8 @@ import {
   ShieldCheck, 
   CameraOff, 
   Check, 
-  Zap 
+  Zap,
+  Info
 } from 'lucide-react';
 import { api } from '../lib/api';
 
@@ -27,6 +28,7 @@ interface AttendanceNotice {
   name: string;
   employee_id: string;
   check_in: string;
+  status: 'Marked' | 'Already Marked';
 }
 
 interface FacenoxFaceResult {
@@ -43,7 +45,9 @@ interface FacenoxFaceResult {
   confidence: number;
   employee?: RecognizedEmployee;
   attendance_marked?: boolean;
+  attendance_already_marked?: boolean;
   attendance_time?: string;
+  attendance_message?: string;
 }
 
 export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalProps) {
@@ -90,7 +94,7 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
     lastFacesRef.current = [];
   }, []);
 
-  // 3. Start camera stream
+  // Start camera stream
   const startCamera = useCallback(async () => {
     try {
       stopCamera();
@@ -150,7 +154,7 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
     return stopCamera;
   }, [isOpen, startCamera, stopCamera]);
 
-  // 4. Facenox Frame Processing Loop
+  // Continuous Facenox Frame Processing Loop
   const scanFacenoxFrame = useCallback(async () => {
     const video = videoRef.current;
     if (!video || video.paused || video.ended || video.readyState < 2 || isScanningFrameRef.current) {
@@ -172,7 +176,7 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
         image: b64,
         auto_mark_attendance: true,
         enable_liveness: true,
-        camera_name: 'Facenox AI Terminal',
+        camera_name: 'Terminal-Gate-1',
       });
 
       if (res.data?.success) {
@@ -180,18 +184,7 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
         const faces: FacenoxFaceResult[] = res.data.faces || [];
         lastFacesRef.current = faces;
 
-        // Check if attendance was auto-marked in this frame
-        if (res.data.attendance_events && res.data.attendance_events.length > 0) {
-          const ev = res.data.attendance_events[0];
-          setLastAttendanceNotice({
-            name: ev.name,
-            employee_id: ev.employee_id,
-            check_in: ev.time,
-          });
-          setStatusLabel('Checked In');
-          setStatusMessage(`Attendance marked for ${ev.name}`);
-          setStatusType('success');
-        } else if (faces.length === 0) {
+        if (faces.length === 0) {
           setStatusLabel('Scanning');
           setStatusMessage('Looking for human faces...');
           setStatusType('info');
@@ -205,22 +198,39 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
             setStatusLabel('Recognized');
             setStatusMessage(`${firstFace.employee.name} (${Math.round(firstFace.confidence * 100)}%)`);
             setStatusType('success');
+
+            // Handle Attendance Notification (Marked vs Already Marked)
+            if (firstFace.attendance_marked) {
+              setLastAttendanceNotice({
+                name: firstFace.employee.name,
+                employee_id: firstFace.employee.employee_id,
+                check_in: firstFace.attendance_time || res.data.timestamp_ist || 'Now',
+                status: 'Marked',
+              });
+            } else if (firstFace.attendance_already_marked) {
+              setLastAttendanceNotice({
+                name: firstFace.employee.name,
+                employee_id: firstFace.employee.employee_id,
+                check_in: firstFace.attendance_time || 'Earlier today',
+                status: 'Already Marked',
+              });
+            }
           } else {
             setStatusLabel('Unrecognized');
-            setStatusMessage('Real human face detected (not in roster)');
+            setStatusMessage('Unknown Face — Not Registered');
             setStatusType('warning');
           }
         }
       }
     } catch (err: any) {
       console.warn('Facenox frame scan error:', err);
-      setApiError('Facenox server busy / response delayed');
+      setApiError('Facenox engine processing delayed');
     } finally {
       isScanningFrameRef.current = false;
     }
   }, []);
 
-  // 5. Continuous Canvas Rendering Animation Loop
+  // Canvas Rendering Overlay
   useEffect(() => {
     if (!isOpen || cameraError) return;
 
@@ -247,7 +257,6 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // Scale factors if video resolution differs from 640x480 model input
       const scaleX = canvas.width / 640;
       const scaleY = canvas.height / 480;
 
@@ -309,7 +318,7 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
           : `🔴 SPOOF DETECTED (${face.liveness.status.toUpperCase()})`;
         ctx.font = 'bold 11px Inter, sans-serif';
         const liveWidth = ctx.measureText(livenessText).width;
-        ctx.fillStyle = isReal ? 'rgba(6, 78, 59, 0.85)' : 'rgba(153, 27, 27, 0.90)';
+        ctx.fillStyle = isReal ? 'rgba(6, 78, 59, 0.88)' : 'rgba(153, 27, 27, 0.92)';
         ctx.strokeStyle = strokeColor;
         ctx.lineWidth = 1;
         ctx.beginPath();
@@ -320,25 +329,27 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
         ctx.fillStyle = '#FFFFFF';
         ctx.fillText(livenessText, x + 8, Math.max(25, y - 13));
 
-        // 2. Bottom Identity Info Card
+        // 2. Bottom Identity Info Card (Step B3 Compliant)
         if (isMatched && face.employee) {
-          const nameText = `✓ ${face.employee.name}`;
-          const idText = `${face.employee.employee_id} • ${Math.round(face.confidence * 100)}% Match`;
-          const deptText = face.employee.department || 'Verified Staff';
+          const line1 = `Employee Name: ${face.employee.name}`;
+          const line2 = `Employee ID: ${face.employee.employee_id}`;
+          const line3 = `Status: Recognized (${Math.round(face.confidence * 100)}%)`;
 
-          ctx.font = 'bold 14px Inter, sans-serif';
-          const nw = ctx.measureText(nameText).width;
-          ctx.font = '600 11px Inter, sans-serif';
-          const iw = ctx.measureText(idText).width;
+          ctx.font = 'bold 12px Inter, sans-serif';
+          const maxTextW = Math.max(
+            ctx.measureText(line1).width,
+            ctx.measureText(line2).width,
+            ctx.measureText(line3).width
+          );
 
-          const cardW = Math.max(nw, iw) + 24;
+          const cardW = maxTextW + 22;
           const cardH = 58;
           let cardY = y + h + 10;
           if (cardY + cardH > canvas.height - 10) {
             cardY = Math.max(10, y - cardH - 34);
           }
 
-          ctx.fillStyle = 'rgba(6, 78, 59, 0.92)';
+          ctx.fillStyle = 'rgba(6, 78, 59, 0.94)';
           ctx.strokeStyle = '#10B981';
           ctx.lineWidth = 1.5;
           ctx.beginPath();
@@ -347,24 +358,25 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
           ctx.stroke();
 
           ctx.fillStyle = '#FFFFFF';
-          ctx.font = 'bold 13px Inter, sans-serif';
-          ctx.fillText(nameText, x + 10, cardY + 20);
+          ctx.font = 'bold 12px Inter, sans-serif';
+          ctx.fillText(line1, x + 10, cardY + 18);
 
           ctx.fillStyle = '#A7F3D0';
-          ctx.font = '500 11px Inter, sans-serif';
-          ctx.fillText(idText, x + 10, cardY + 37);
+          ctx.font = '600 11px Inter, sans-serif';
+          ctx.fillText(line2, x + 10, cardY + 34);
 
           ctx.fillStyle = '#6EE7B7';
           ctx.font = '500 10px Inter, sans-serif';
-          ctx.fillText(deptText, x + 10, cardY + 50);
+          ctx.fillText(line3, x + 10, cardY + 49);
         } else if (!isMatched && isReal) {
-          const unkText = '? Unrecognized Individual';
+          // Unknown Face — Not Registered
+          const unkText = 'Unknown Face — Not Registered';
           ctx.font = 'bold 12px Inter, sans-serif';
           const uw = ctx.measureText(unkText).width;
           let cardY = y + h + 10;
           if (cardY + 28 > canvas.height - 10) cardY = Math.max(10, y - 60);
 
-          ctx.fillStyle = 'rgba(120, 53, 15, 0.90)';
+          ctx.fillStyle = 'rgba(120, 53, 15, 0.92)';
           ctx.strokeStyle = '#F59E0B';
           ctx.lineWidth = 1;
           ctx.beginPath();
@@ -421,7 +433,7 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
     ctx.restore();
   };
 
-  // Trigger continuous Facenox frame scans every 280ms
+  // Continuous frame trigger interval (every 280ms)
   useEffect(() => {
     if (!isOpen || cameraError) return;
     const interval = setInterval(() => {
@@ -434,7 +446,7 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
-      <div className="bg-surface border border-border w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+      <div className="bg-surface border border-border w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
         
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-surface-hover/40">
@@ -444,12 +456,12 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-bold text-text">Facenox AI Face Biometrics</h2>
+                <h2 className="text-lg font-bold text-text">Facenox Live Attendance Scanner</h2>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
-                  SOTA ONNX
+                  REAL-TIME AI
                 </span>
               </div>
-              <p className="text-xs text-text-muted">Anti-Spoofing Liveness &bull; ArcFace 512d &bull; Auto Attendance</p>
+              <p className="text-xs text-text-muted">YuNet Detector &bull; Anti-Spoofing &bull; ArcFace 512d &bull; Auto Check-in</p>
             </div>
           </div>
           <button 
@@ -516,25 +528,37 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
             </div>
           )}
 
-          {/* Bottom Attendance Confirmation Overlay Card */}
+          {/* Bottom Attendance Confirmation Toast Card */}
           {lastAttendanceNotice && (
-            <div className="absolute bottom-4 left-4 right-4 bg-emerald-950/95 border border-emerald-500/50 backdrop-blur-md text-white p-3.5 rounded-xl flex items-center justify-between z-30 shadow-2xl animate-in fade-in slide-in-from-bottom-2 duration-200">
+            <div className={`absolute bottom-4 left-4 right-4 backdrop-blur-md text-white p-3.5 rounded-xl flex items-center justify-between z-30 shadow-2xl animate-in fade-in slide-in-from-bottom-2 duration-200 border ${
+              lastAttendanceNotice.status === 'Marked' 
+                ? 'bg-emerald-950/95 border-emerald-500/50' 
+                : 'bg-cyan-950/95 border-cyan-500/50'
+            }`}>
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 rounded-full flex items-center justify-center shrink-0">
-                  <Check className="w-5 h-5" />
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 border ${
+                  lastAttendanceNotice.status === 'Marked'
+                    ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400'
+                    : 'bg-cyan-500/20 border-cyan-500/40 text-cyan-400'
+                }`}>
+                  {lastAttendanceNotice.status === 'Marked' ? <Check className="w-5 h-5" /> : <Info className="w-5 h-5" />}
                 </div>
                 <div>
-                  <div className="flex items-center gap-2 font-bold text-xs text-emerald-400 uppercase tracking-wider">
-                    ✓ Facenox Verified Check-in Recorded
+                  <div className={`flex items-center gap-2 font-bold text-xs uppercase tracking-wider ${
+                    lastAttendanceNotice.status === 'Marked' ? 'text-emerald-400' : 'text-cyan-300'
+                  }`}>
+                    {lastAttendanceNotice.status === 'Marked' 
+                      ? '✓ Attendance Marked Successfully' 
+                      : 'Attendance Already Marked'}
                   </div>
                   <div className="text-sm font-semibold text-white">
-                    {lastAttendanceNotice.name} <span className="font-mono text-emerald-300 font-normal">({lastAttendanceNotice.employee_id})</span>
+                    {lastAttendanceNotice.name} <span className="font-mono text-cyan-300 font-normal">({lastAttendanceNotice.employee_id})</span>
                   </div>
                 </div>
               </div>
               <div className="text-right border-l border-white/10 pl-4">
-                <div className="text-[10px] text-emerald-200/70 uppercase font-medium">MySQL Recorded</div>
-                <div className="text-xs font-mono font-bold text-emerald-300">{lastAttendanceNotice.check_in}</div>
+                <div className="text-[10px] text-white/60 uppercase font-medium">Recorded Time</div>
+                <div className="text-xs font-mono font-bold text-cyan-300">{lastAttendanceNotice.check_in}</div>
               </div>
             </div>
           )}
@@ -545,7 +569,7 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-emerald-400" />
             <span className="text-[11px]">
-              Anti-Spoofing: <strong className="text-white">Active</strong> &bull; Engine: <strong className="text-cyan-400">Facenox YuNet + ArcFace 512d</strong>
+              Anti-Spoofing: <strong className="text-white">Active</strong> &bull; Engine: <strong className="text-cyan-400">Facenox ArcFace 512d</strong> &bull; Timezone: <strong className="text-white">Asia/Kolkata (IST)</strong>
             </span>
           </div>
           <button 
