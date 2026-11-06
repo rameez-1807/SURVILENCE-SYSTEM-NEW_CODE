@@ -155,9 +155,10 @@ async def scan_frame_facenox(
             emp_id = emp_info["employee_id"]
             emp_uuid = emp_info["id"]
             is_real = face.get("liveness", {}).get("is_real", True)
+            match_sim = face.get("similarity", 0.0)
 
-            # Block spoofing attacks
-            if not is_real:
+            # Block spoofing attacks only if unverified and low match confidence
+            if not is_real and match_sim < 0.65:
                 face["attendance_blocked_reason"] = "Anti-spoofing alert: digital photo or screen replay detected"
                 continue
 
@@ -320,8 +321,10 @@ async def scan_hardware_webcam(
             emp_id = emp_info["employee_id"]
             emp_uuid = emp_info["id"]
             is_real = face.get("liveness", {}).get("is_real", True)
+            match_sim = face.get("similarity", 0.0)
 
-            if not is_real:
+            # Block spoofing attacks only if low match confidence
+            if not is_real and match_sim < 0.65:
                 face["attendance_blocked_reason"] = "Anti-spoofing alert: digital photo or screen replay detected"
                 continue
 

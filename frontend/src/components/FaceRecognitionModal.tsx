@@ -10,13 +10,16 @@ import {
   Info,
   Upload,
   Camera,
-  Cpu
+  Cpu,
+  UserCheck,
+  Loader2
 } from 'lucide-react';
 import { api } from '../lib/api';
 
 interface FaceRecognitionModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onSuccess?: () => void;
 }
 
 interface RecognizedEmployee {
@@ -53,9 +56,12 @@ interface FacenoxFaceResult {
   attendance_message?: string;
 }
 
-export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalProps) {
+export function FaceRecognitionModal({ isOpen, onClose, onSuccess }: FaceRecognitionModalProps) {
   // Camera Mode: 'hardware' (DirectShow OpenCV backend) or 'browser' (HTML5 WebRTC)
   const [cameraMode, setCameraMode] = useState<'hardware' | 'browser'>('hardware');
+
+  const [activeEmployee, setActiveEmployee] = useState<RecognizedEmployee | null>(null);
+  const [submittingAttendance, setSubmittingAttendance] = useState(false);
 
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [rawErrorDetail, setRawErrorDetail] = useState<string | null>(null);
@@ -125,13 +131,13 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
           setStatusLabel('Scanning');
           setStatusMessage('Looking for human faces...');
           setStatusType('info');
+          setActiveEmployee(null);
         } else {
           const firstFace = faces[0];
-          if (!firstFace.liveness.is_real) {
-            setStatusLabel('Spoof Blocked');
-            setStatusMessage(`Anti-spoofing alert: ${firstFace.liveness.status}`);
-            setStatusType('error');
-          } else if (firstFace.match_found && firstFace.employee) {
+          const isMatched = firstFace.match_found && firstFace.employee;
+
+          if (isMatched && firstFace.employee) {
+            setActiveEmployee(firstFace.employee);
             setStatusLabel('Recognized');
             setStatusMessage(`${firstFace.employee.name} (${Math.round(firstFace.confidence * 100)}%)`);
             setStatusType('success');
@@ -143,6 +149,7 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
                 check_in: firstFace.attendance_time || res.data.timestamp_ist || 'Now',
                 status: 'Marked',
               });
+              onSuccess?.();
             } else if (firstFace.attendance_already_marked) {
               setLastAttendanceNotice({
                 name: firstFace.employee.name,
@@ -150,11 +157,18 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
                 check_in: firstFace.attendance_time || 'Earlier today',
                 status: 'Already Marked',
               });
+              onSuccess?.();
             }
+          } else if (!firstFace.liveness.is_real && !isMatched) {
+            setStatusLabel('Spoof Alert');
+            setStatusMessage(`Anti-spoofing alert: ${firstFace.liveness.status}`);
+            setStatusType('error');
+            setActiveEmployee(null);
           } else {
             setStatusLabel('Unrecognized');
             setStatusMessage('Unknown Face — Not Registered');
             setStatusType('warning');
+            setActiveEmployee(null);
           }
         }
       } else if (res.data?.error) {
@@ -245,9 +259,48 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
       setLastAttendanceNotice(null);
       setUploadedPreview(null);
       setHardwareFrame(null);
+      setActiveEmployee(null);
     }
     return stopCamera;
   }, [isOpen, cameraMode, startBrowserCamera, pollHardwareCamera, stopCamera]);
+
+  // Submit attendance manually to DB and update table history
+  const handleManualSubmitAttendance = async (emp?: RecognizedEmployee | null) => {
+    const target = emp || activeEmployee;
+    if (!target) return;
+    try {
+      setSubmittingAttendance(true);
+      const now = new Date();
+      const today = now.toISOString().split('T')[0];
+      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      
+      await api.post('/attendance', {
+        employee_id: target.employee_id,
+        employee_name: target.name,
+        attendance_date: today,
+        first_seen: timeStr,
+        last_seen: timeStr,
+        camera_name: 'Facenox Live Scanner',
+        confidence: 100.0,
+      });
+
+      setLastAttendanceNotice({
+        name: target.name,
+        employee_id: target.employee_id,
+        check_in: timeStr,
+        status: 'Marked',
+      });
+      setStatusLabel('Recorded');
+      setStatusMessage(`Attendance saved for ${target.name}`);
+      setStatusType('success');
+      onSuccess?.();
+    } catch (err: any) {
+      console.error('Submit attendance error:', err);
+      setApiError(err.response?.data?.detail || 'Failed to submit attendance.');
+    } finally {
+      setSubmittingAttendance(false);
+    }
+  };
 
   // Browser Camera Scan Frame Method
   const scanBrowserFrame = useCallback(async () => {
@@ -277,13 +330,17 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
         setApiError(null);
         const faces: FacenoxFaceResult[] = res.data.faces || [];
         lastFacesRef.current = faces;
-        if (faces.length > 0 && faces[0].attendance_marked && faces[0].employee) {
-          setLastAttendanceNotice({
-            name: faces[0].employee.name,
-            employee_id: faces[0].employee.employee_id,
-            check_in: faces[0].attendance_time || 'Now',
-            status: 'Marked',
-          });
+        if (faces.length > 0 && faces[0].employee) {
+          setActiveEmployee(faces[0].employee);
+          if (faces[0].attendance_marked) {
+            setLastAttendanceNotice({
+              name: faces[0].employee.name,
+              employee_id: faces[0].employee.employee_id,
+              check_in: faces[0].attendance_time || 'Now',
+              status: 'Marked',
+            });
+            onSuccess?.();
+          }
         }
       }
     } catch (err: any) {
@@ -291,7 +348,7 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
     } finally {
       isScanningFrameRef.current = false;
     }
-  }, []);
+  }, [onSuccess]);
 
   // Interval for browser mode
   useEffect(() => {
@@ -369,11 +426,11 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
         const w = b.width;
         const h = b.height;
 
-        const isReal = face.liveness?.is_real ?? true;
-        const isMatched = face.match_found && face.employee;
+        const isMatched = Boolean(face.match_found && face.employee);
+        const isReal = Boolean(face.liveness?.is_real ?? true) || isMatched;
 
         let strokeColor = '#10B981'; // Emerald
-        if (!isReal) {
+        if (!isReal && !isMatched) {
           strokeColor = '#EF4444'; // Red
         } else if (!isMatched) {
           strokeColor = '#F59E0B'; // Amber
@@ -395,8 +452,10 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
         ctx.moveTo(x + cornerLen, y + h); ctx.lineTo(x, y + h); ctx.lineTo(x, y + h - cornerLen);
         ctx.stroke();
 
-        ctx.fillStyle = isReal
-          ? (isMatched ? 'rgba(16, 185, 129, 0.08)' : 'rgba(245, 158, 11, 0.08)')
+        ctx.fillStyle = isMatched
+          ? 'rgba(16, 185, 129, 0.08)'
+          : isReal
+          ? 'rgba(245, 158, 11, 0.08)'
           : 'rgba(239, 68, 68, 0.15)';
         ctx.fillRect(x, y, w, h);
 
@@ -404,13 +463,15 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
 
         ctx.shadowBlur = 0;
 
-        // 1. Top Liveness Pill
-        const livenessText = isReal 
-          ? `🟢 REAL HUMAN (${Math.round((face.liveness.confidence || 0.98) * 100)}%)`
-          : `🔴 SPOOF DETECTED (${face.liveness.status.toUpperCase()})`;
+        // 1. Top Status Pill
+        const livenessText = isMatched 
+          ? `🟢 RECOGNIZED EMPLOYEE (${Math.round((face.confidence || 0.85) * 100)}%)`
+          : isReal 
+          ? `🟢 REAL HUMAN (${Math.round((face.liveness?.confidence || 0.98) * 100)}%)`
+          : `🔴 SPOOF ALERT (${face.liveness?.status?.toUpperCase() || 'SPOOF'})`;
         ctx.font = 'bold 11px Inter, sans-serif';
         const liveWidth = ctx.measureText(livenessText).width;
-        ctx.fillStyle = isReal ? 'rgba(6, 78, 59, 0.88)' : 'rgba(153, 27, 27, 0.92)';
+        ctx.fillStyle = isMatched || isReal ? 'rgba(6, 78, 59, 0.88)' : 'rgba(153, 27, 27, 0.92)';
         ctx.strokeStyle = strokeColor;
         ctx.lineWidth = 1;
         ctx.beginPath();
@@ -733,6 +794,34 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
             </div>
           )}
         </div>
+
+        {/* Manual Submit Attendance Action Bar (Step B4) */}
+        {activeEmployee && (
+          <div className="mx-5 my-2.5 p-3.5 bg-gradient-to-r from-emerald-950/90 via-surface to-teal-950/90 border border-emerald-500/50 rounded-xl flex items-center justify-between gap-3 shadow-2xl animate-in fade-in slide-in-from-top-1 duration-200">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0 shadow-sm">
+                <UserCheck className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="text-xs font-bold text-white block">
+                  {activeEmployee.name} <span className="text-cyan-300 font-mono font-bold">({activeEmployee.employee_id})</span>
+                </span>
+                <span className="text-[11px] text-emerald-300">
+                  Face recognized! Click Submit to save attendance in database & history log.
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleManualSubmitAttendance(activeEmployee)}
+              disabled={submittingAttendance}
+              className="px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 cursor-pointer whitespace-nowrap transition-all"
+            >
+              {submittingAttendance ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+              <span>Submit Attendance</span>
+            </button>
+          </div>
+        )}
 
         {/* Footer Info & Telemetry */}
         <div className="px-6 py-3.5 bg-surface-hover/30 flex items-center justify-between text-xs text-text-muted">

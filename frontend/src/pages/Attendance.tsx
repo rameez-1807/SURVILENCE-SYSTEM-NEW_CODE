@@ -71,12 +71,16 @@ export default function Attendance() {
       setError(null);
       setApiMissing(false);
       
-      if (activeTab === 'employees') {
-        const res = await api.get('/employees?limit=200');
-        setEmployees(res.data.items || []);
-      } else {
-        const res = await api.get('/attendance?limit=500');
-        setRecords(res.data.items || []);
+      const [empRes, attRes] = await Promise.allSettled([
+        api.get('/employees?limit=200'),
+        api.get('/attendance?limit=500')
+      ]);
+
+      if (empRes.status === 'fulfilled') {
+        setEmployees(empRes.value.data.items || []);
+      }
+      if (attRes.status === 'fulfilled') {
+        setRecords(attRes.value.data.items || []);
       }
     } catch (err: any) {
       if (err.response?.status === 404) {
@@ -84,7 +88,7 @@ export default function Attendance() {
       } else if (err.response?.status === 401 || err.response?.status === 403) {
         setError('Authentication required. Please log in.');
       } else {
-        setError(`Failed to fetch ${activeTab} data.`);
+        setError('Failed to fetch attendance data.');
       }
     } finally {
       setLoading(false);
@@ -538,6 +542,9 @@ export default function Attendance() {
       <FaceRecognitionModal 
         isOpen={isRecognitionModalOpen}
         onClose={() => setIsRecognitionModalOpen(false)}
+        onSuccess={() => {
+          fetchData();
+        }}
       />
     </div>
   );

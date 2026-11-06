@@ -73,12 +73,12 @@ class FacenoxEngine:
                 frame_rate=30,
             )
 
-            # 3. Initialize Liveness / Anti-Spoofing Detector
+            # 3. Initialize Liveness / Anti-Spoofing Detector (Calibrated for indoor/webcam lighting)
             self.liveness = LivenessDetector(
                 model_path=LIVENESS_PATH,
-                pass_margin=1.5,
-                spoof_margin=0.0,
-                required_real_frames=2,
+                pass_margin=-0.5,
+                spoof_margin=-2.5,
+                required_real_frames=1,
             )
 
             # 4. Initialize ArcFace 512-d Recognizer
