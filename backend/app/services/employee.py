@@ -50,12 +50,44 @@ class EmployeeService:
         return await self.repo.create(obj_in, face_encoding=obj_in.face_encoding)
 
     async def recognize_face(self, obj_in: EmployeeRecognizeRequest) -> EmployeeRecognizeResponse:
-        """Recognize a face from a face embedding against known employees."""
-        
+        """Recognize a face from image frame or embedding using Facenox SOTA engine."""
         start_time = time.perf_counter()
+        
+        # 1. Image-based Facenox recognition path
+        if obj_in.image_base64:
+            from app.core.ai.facenox_engine import facenox_engine
+            img = facenox_engine.decode_image(obj_in.image_base64)
+            if img is not None:
+                employees = await self.repo.list_all_with_encodings()
+                emp_dicts = [
+                    {
+                        "id": emp.id,
+                        "name": emp.name,
+                        "employee_id": emp.employee_id,
+                        "department": emp.department,
+                        "designation": emp.designation,
+                        "face_encoding": emp.face_encoding
+                    }
+                    for emp in employees if emp.face_encoding
+                ]
+                faces = await facenox_engine.scan_and_recognize_frame(img, emp_dicts, enable_liveness=True)
+                if faces:
+                    top_face = faces[0]
+                    if top_face.get("match_found") and top_face.get("employee"):
+                        matched = next((e for e in employees if str(e.id) == str(top_face["employee"]["id"])), None)
+                        if matched:
+                            return EmployeeRecognizeResponse(
+                                match_found=True,
+                                employee=EmployeeResponse.model_validate(matched),
+                                confidence=top_face.get("confidence", 0.95),
+                                engine="facenox",
+                                liveness=top_face.get("liveness")
+                            )
+
+        # 2. Embedding-based recognition path
         incoming_embedding = obj_in.face_encoding
-        if not incoming_embedding or len(incoming_embedding) != 128:
-            logger.warning("Recognition rejected: invalid or missing 128-d face embedding")
+        if not incoming_embedding or len(incoming_embedding) not in (128, 512):
+            logger.warning("Recognition rejected: invalid or missing face embedding")
             return EmployeeRecognizeResponse(match_found=False)
 
         # Fetch all employees with encodings
@@ -63,27 +95,39 @@ class EmployeeService:
         
         best_match = None
         best_distance = float('inf')
+        best_similarity = 0.0
+        is_512d = len(incoming_embedding) == 512
         
-        # Use configurable threshold from core settings
-        threshold = settings.FACE_RECOGNITION_THRESHOLD
+        threshold = 0.55 if is_512d else settings.FACE_RECOGNITION_THRESHOLD
 
         for employee in employees:
-            if not employee.face_encoding:
+            if not employee.face_encoding or len(employee.face_encoding) != len(incoming_embedding):
                 continue
-                
-            distance = calculate_euclidean_distance(incoming_embedding, employee.face_encoding)
             
-            if distance < threshold and distance < best_distance:
-                best_match = employee
-                best_distance = distance
+            if is_512d:
+                # Cosine similarity for 512-d ArcFace
+                sim = float(np.dot(incoming_embedding, employee.face_encoding))
+                if sim >= threshold and sim > best_similarity:
+                    best_match = employee
+                    best_similarity = sim
+            else:
+                # Euclidean distance for 128-d
+                distance = calculate_euclidean_distance(incoming_embedding, employee.face_encoding)
+                if distance < threshold and distance < best_distance:
+                    best_match = employee
+                    best_distance = distance
 
         elapsed_ms = (time.perf_counter() - start_time) * 1000.0
 
         if best_match:
-            confidence = round(max(0.0, 1.0 - (best_distance / threshold)), 4)
+            if is_512d:
+                confidence = round(min(1.0, max(0.0, (best_similarity - threshold) / (1.0 - threshold) * 0.5 + 0.5)), 4)
+            else:
+                confidence = round(max(0.0, 1.0 - (best_distance / threshold)), 4)
+
             logger.info(
-                "Face recognized: employee_id='%s', name='%s', distance=%.4f, confidence=%.2f%%, checked_count=%d, duration=%.2fms",
-                best_match.employee_id, best_match.name, best_distance, confidence * 100.0, len(employees), elapsed_ms
+                "Face recognized: employee_id='%s', name='%s', metric=%.4f, confidence=%.2f%%, checked_count=%d, duration=%.2fms",
+                best_match.employee_id, best_match.name, best_similarity if is_512d else best_distance, confidence * 100.0, len(employees), elapsed_ms
             )
 
             # Auto-log event to recognition history DB
@@ -97,7 +141,7 @@ class EmployeeService:
                     employee_id=best_match.employee_id,
                     employee_name=best_match.name,
                     confidence=round(confidence * 100.0, 1),
-                    camera_name="Live Camera",
+                    camera_name="Live Camera (Facenox)",
                     status="Recognized"
                 ))
             except Exception as e:
@@ -107,7 +151,8 @@ class EmployeeService:
             return EmployeeRecognizeResponse(
                 match_found=True,
                 employee=response,
-                confidence=confidence
+                confidence=confidence,
+                engine="facenox" if is_512d else "face-api"
             )
             
         logger.info(

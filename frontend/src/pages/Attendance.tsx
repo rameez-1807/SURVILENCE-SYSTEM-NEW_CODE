@@ -12,7 +12,8 @@ import {
   RefreshCw,
   Clock,
   CloudDownload,
-  CheckCircle2
+  CheckCircle2,
+  Zap
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { PageHeader } from '../components/ui/PageHeader';
@@ -128,10 +129,10 @@ export default function Attendance() {
         {activeTab === 'records' && (
           <button 
             onClick={() => setIsRecognitionModalOpen(true)}
-            className="inline-flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white rounded-xl text-xs font-semibold shadow-md shadow-blue-500/25 transition-all"
+            className="inline-flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-cyan-500/25 transition-all"
           >
-            <Scan className="w-3.5 h-3.5 animate-pulse" />
-            <span>Live Face Scanner</span>
+            <Zap className="w-3.5 h-3.5 text-cyan-300 animate-pulse" />
+            <span>⚡ Facenox Live Attendance</span>
           </button>
         )}
 
@@ -179,6 +180,38 @@ export default function Attendance() {
           <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
         </button>
       </PageHeader>
+
+      {/* Facenox Biometric AI Engine Banner */}
+      <div className="bg-gradient-to-r from-cyan-950/40 via-surface to-surface border border-cyan-500/30 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 shadow-xl shadow-cyan-950/20">
+        <div className="flex items-center gap-3.5">
+          <div className="p-2.5 bg-cyan-500/15 text-cyan-400 rounded-xl border border-cyan-500/30 shadow-inner">
+            <Zap className="w-5 h-5 animate-pulse" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-bold text-white text-sm tracking-wide">Facenox SOTA Biometric Platform</span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                ACTIVE INFERENCE
+              </span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                YuNet + MiniFASNetV2 Anti-Spoof + ArcFace 512d
+              </span>
+            </div>
+            <p className="text-text-muted text-xs mt-1">
+              On-device real-time face matching with multi-subject ByteTrack and anti-spoofing defense (blocks photos, tablets, & mobile screen replays).
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsRecognitionModalOpen(true)}
+            className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-xl font-bold text-xs flex items-center gap-2 shadow-md shadow-cyan-500/25 transition-all"
+          >
+            <Zap className="w-3.5 h-3.5 text-cyan-200" />
+            <span>Launch Facenox Scanner</span>
+          </button>
+        </div>
+      </div>
 
       {syncMessage && (
         <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-medium animate-fade-in">

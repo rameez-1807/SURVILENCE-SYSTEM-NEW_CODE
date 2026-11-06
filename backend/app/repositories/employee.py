@@ -101,6 +101,27 @@ class EmployeeRepository:
 
         return result.rowcount > 0
 
+    async def update_face_encoding(self, employee_id: str, face_encoding: list[float]) -> Optional[Employee]:
+        """Update or set face encoding for an employee."""
+        emp = await self.get_by_employee_id(employee_id)
+        if not emp:
+            return None
+        emp.face_encoding = face_encoding
+        await self.db.commit()
+        await self.db.refresh(emp)
+
+        try:
+            from app.db.mongodb import get_async_db
+            mongo_db = get_async_db()
+            await mongo_db.employees.update_one(
+                {"employee_id": employee_id},
+                {"$set": {"face_encoding": face_encoding}}
+            )
+        except Exception:
+            pass
+
+        return emp
+
     async def remove_face_encoding(self, employee_id: str) -> Optional[Employee]:
         """Remove face encoding for an employee while keeping the employee record in DB."""
         emp = await self.get_by_employee_id(employee_id)

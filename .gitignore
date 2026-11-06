@@ -60,8 +60,11 @@ backend/weights/*
 !backend/weights/yoloe-11s-seg-pf.pt
 !backend/weights/.gitkeep
 backend/weights/clip/
-backend/models/
+backend/models/*
+!backend/models/facenox/
+!backend/models/facenox/**
 *.onnx
+!backend/models/facenox/*.onnx
 
 # Keep needed YOLO & ANPR model weights under 50MB
 backend/*.ts

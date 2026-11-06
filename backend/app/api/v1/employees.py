@@ -11,6 +11,7 @@ from app.schemas.employee import (
     EmployeeRecognizeRequest,
     EmployeeRecognizeResponse,
     EmployeeResponse,
+    FacenoxEnrollRequest,
 )
 from app.services.employee import EmployeeService
 
@@ -77,3 +78,35 @@ async def remove_employee_face(
             detail=f"Employee with ID '{employee_id}' not found"
         )
     return employee
+
+
+@router.post("/facenox/enroll")
+async def enroll_employee_facenox(
+    request: FacenoxEnrollRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Enroll an employee's face using Facenox SOTA 512-d ArcFace + YuNet model.
+    """
+    from app.core.ai.facenox_engine import facenox_engine
+    img = facenox_engine.decode_image(request.image)
+    if img is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid image data provided")
+    
+    success, embedding, msg = await facenox_engine.extract_face_embedding(img)
+    if not success or not embedding:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=msg)
+    
+    repo = EmployeeService(db).repo
+    emp = await repo.get_by_employee_id(request.employee_id)
+    if not emp:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Employee '{request.employee_id}' not found")
+    
+    updated = await repo.update_face_encoding(request.employee_id, embedding)
+    return {
+        "success": True,
+        "message": f"Successfully enrolled face for {emp.name} ({request.employee_id}) using Facenox ArcFace 512-d!",
+        "employee_id": request.employee_id,
+        "name": emp.name,
+        "embedding_dim": len(embedding)
+    }
