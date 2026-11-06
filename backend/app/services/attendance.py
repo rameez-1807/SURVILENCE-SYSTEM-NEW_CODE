@@ -27,14 +27,45 @@ class AttendanceService:
         """
         Create or update an attendance record.
         Looks up the employee by string employee_id and prevents duplicate daily rows.
+        If employee does not exist and employee_name is provided, auto-registers employee.
         """
+        if not obj_in.last_seen:
+            obj_in.last_seen = obj_in.first_seen
+
         # Find employee by string ID (e.g. "EMP-001")
         employee = await self.emp_repo.get_by_employee_id(obj_in.employee_id)
         if not employee:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Employee with ID '{obj_in.employee_id}' not found. Please register the employee first."
-            )
+            if obj_in.employee_name and obj_in.employee_name.strip():
+                # Auto-register new employee so manual entry never fails
+                from app.schemas.employee import EmployeeCreate
+                from app.services.employee import EmployeeService
+                emp_service = EmployeeService(self.db)
+
+                embedding = None
+                if obj_in.face_image:
+                    try:
+                        from app.core.ai.facenox_engine import facenox_engine
+                        if facenox_engine.is_ready:
+                            img = facenox_engine.decode_image(obj_in.face_image)
+                            if img is not None:
+                                ok, emb, _ = await facenox_engine.extract_face_embedding(img)
+                                if ok and emb:
+                                    embedding = emb
+                    except Exception as e:
+                        logger.warning("Failed to extract face embedding during manual attendance auto-enroll: %s", e)
+
+                new_emp_in = EmployeeCreate(
+                    name=obj_in.employee_name.strip(),
+                    employee_id=obj_in.employee_id.strip(),
+                    face_encoding=embedding
+                )
+                employee = await emp_service.register_employee(new_emp_in)
+                logger.info("Auto-registered employee %s (%s) from manual attendance workflow", employee.name, employee.employee_id)
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Employee with ID '{obj_in.employee_id}' not found. Please provide Full Name to register."
+                )
 
         # Check for existing attendance on the same date for this employee
         existing_record = await self.repo.get_by_employee_and_date(employee.id, obj_in.attendance_date)

@@ -13,7 +13,8 @@ import {
   CloudDownload,
   CheckCircle2,
   Zap,
-  Trash2
+  Trash2,
+  UserPlus
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { PageHeader } from '../components/ui/PageHeader';
@@ -167,6 +168,18 @@ export default function Attendance() {
         >
           <CloudDownload className={cn("w-3.5 h-3.5", syncing && "animate-bounce")} />
           <span>{syncing ? 'Syncing HRMS...' : 'Sync HRMS'}</span>
+        </button>
+
+        <button 
+          onClick={() => {
+            setSelectedEmployee(null);
+            setIsRegistrationModalOpen(true);
+          }}
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-xl text-xs font-bold shadow-md shadow-cyan-500/20 transition-all"
+          title="Enroll Face & Register New Employee"
+        >
+          <UserPlus className="w-3.5 h-3.5" />
+          <span>+ Register Employee & Face</span>
         </button>
 
         <button 

@@ -102,3 +102,4 @@ class LocalWebcamManager:
 
 
 local_webcam_manager = LocalWebcamManager()
+

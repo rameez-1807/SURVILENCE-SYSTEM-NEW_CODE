@@ -5,6 +5,7 @@ Pydantic models for attendance record request/response validation.
 """
 
 import uuid
+from typing import Optional
 from datetime import date as DateType, time as TimeType
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -12,9 +13,11 @@ from pydantic import BaseModel, ConfigDict, Field
 class AttendanceRecordCreate(BaseModel):
     """Schema for creating a manual attendance record."""
     employee_id: str = Field(..., description="String employee ID (e.g. EMP-123)")
+    employee_name: Optional[str] = Field(default=None, description="Employee full name (used to auto-register if new)")
+    face_image: Optional[str] = Field(default=None, description="Base64 face image to enroll biometric template if new")
     attendance_date: DateType = Field(..., description="Date of attendance")
     first_seen: TimeType = Field(..., description="First time seen (check-in)")
-    last_seen: TimeType = Field(..., description="Last time seen (check-out)")
+    last_seen: Optional[TimeType] = Field(default=None, description="Last time seen (check-out)")
     camera_name: str = Field(default="Manual Entry", description="Camera/source name")
     confidence: float = Field(default=100.0, ge=0.0, le=100.0, description="Confidence score (0-100)")
 
