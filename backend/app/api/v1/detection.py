@@ -13,6 +13,7 @@ import numpy as np
 import cv2
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, Query
+from app.core.inference_guard import server_ai_inference_enabled, AI_INFERENCE_DISABLED_MESSAGE
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
@@ -94,6 +95,8 @@ async def detect_from_webcam(req: WebcamDetectRequest) -> Dict[str, Any]:
     Receive a base64 encoded image frame from the browser webcam
     and run YOLO11m detection using the backend singleton.
     """
+    if not server_ai_inference_enabled():
+        raise HTTPException(status_code=503, detail=AI_INFERENCE_DISABLED_MESSAGE)
     try:
         # Extract base64 part
         encoded_data = req.image_base64.split(',')[1] if ',' in req.image_base64 else req.image_base64
@@ -106,6 +109,8 @@ async def detect_from_webcam(req: WebcamDetectRequest) -> Dict[str, Any]:
         # Run YOLO11m singleton inference in a background thread
         results = await asyncio.to_thread(detect_frame, frame)
         return results
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
