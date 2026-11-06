@@ -17,7 +17,8 @@ import {
   ArrowRight,
   ArrowLeft,
   Eye,
-  CheckCircle2
+  CheckCircle2,
+  Upload
 } from 'lucide-react';
 import { api } from '../lib/api';
 import * as faceapi from 'face-api.js';
@@ -77,6 +78,7 @@ export function FaceRegistrationModal({
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const animFrameRef = useRef<number | null>(null);
 
@@ -166,10 +168,31 @@ export function FaceRegistrationModal({
         throw new Error('Camera device API not supported by browser.');
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
-        audio: false,
-      });
+      let stream: MediaStream | null = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+          audio: false,
+        });
+      } catch (err1) {
+        console.warn('Enrollment Camera Tier 1 failed, attempting Tier 2...', err1);
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user' },
+            audio: false,
+          });
+        } catch (err2) {
+          console.warn('Enrollment Camera Tier 2 failed, attempting raw video: true...', err2);
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false,
+          });
+        }
+      }
+
+      if (!stream) {
+        throw new Error('Unable to establish camera stream.');
+      }
 
       streamRef.current = stream;
 
@@ -182,13 +205,37 @@ export function FaceRegistrationModal({
       }
     } catch (err: any) {
       console.error('Webcam access error:', err);
+      let friendly = 'Unable to access camera hardware. Please check connection.';
       if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
-        setCameraError('Camera access denied. Please grant webcam permissions in browser.');
-      } else {
-        setCameraError('Unable to access camera hardware. Please check device connection.');
+        friendly = 'Camera access blocked. Please allow webcam permissions in your browser URL bar.';
+      } else if (err?.name === 'NotReadableError' || err?.name === 'TrackStartError') {
+        friendly = 'Camera is currently locked by another application or browser tab. Please close other camera tabs and click Retry, or upload a photo.';
+      } else if (err?.name === 'NotFoundError' || err?.name === 'DevicesNotFoundError') {
+        friendly = 'No camera found. You can upload a photo to enroll face.';
+      } else if (err?.message) {
+        friendly = `${err.name || 'Error'}: ${err.message}`;
       }
+      setCameraError(friendly);
     }
   }, [stopCamera]);
+
+  // Upload photo fallback for enrollment
+  const handleUploadPortrait = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const b64 = reader.result as string;
+      setCapturedImage(b64);
+      setScanProgress(100);
+      setScanStage('complete');
+      stopCamera();
+      setStatusMessage('Portrait Photo Uploaded');
+      setInstructionMessage('Biometric photo ready. Complete employee details below.');
+    };
+    reader.readAsDataURL(file);
+  };
 
   // Trigger camera on open
   useEffect(() => {
@@ -754,6 +801,14 @@ export function FaceRegistrationModal({
                       : 'Center face in box and click Start Guided Scan.'}
                   </p>
 
+                  <input 
+                    ref={fileInputRef}
+                    type="file" 
+                    accept="image/*" 
+                    className="hidden" 
+                    onChange={handleUploadPortrait} 
+                  />
+
                   {capturedImage ? (
                     <button 
                       onClick={startCamera}
@@ -764,14 +819,24 @@ export function FaceRegistrationModal({
                       Retake Scan
                     </button>
                   ) : (
-                    <button 
-                      onClick={handleStartGuidedScan}
-                      disabled={!modelsLoaded || isScanningActive || !faceDetected}
-                      className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 disabled:opacity-40 text-white px-5 py-2 rounded-lg font-semibold text-xs shadow-md transition-all cursor-pointer disabled:cursor-not-allowed"
-                    >
-                      {isScanningActive ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
-                      {isScanningActive ? 'Scanning Angles...' : 'Start Guided Scan'}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        className="flex items-center gap-1.5 text-xs bg-surface hover:bg-surface-hover text-text px-3 py-1.5 rounded-lg border border-border transition-colors font-medium cursor-pointer"
+                        title="Upload a clear portrait photo"
+                      >
+                        <Upload className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>Upload Photo</span>
+                      </button>
+                      <button 
+                        onClick={handleStartGuidedScan}
+                        disabled={!modelsLoaded || isScanningActive || !faceDetected}
+                        className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 disabled:opacity-40 text-white px-5 py-2 rounded-lg font-semibold text-xs shadow-md transition-all cursor-pointer disabled:cursor-not-allowed"
+                      >
+                        {isScanningActive ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
+                        {isScanningActive ? 'Scanning Angles...' : 'Start Guided Scan'}
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>

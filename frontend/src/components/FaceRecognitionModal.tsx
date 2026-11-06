@@ -7,7 +7,9 @@ import {
   CameraOff, 
   Check, 
   Zap,
-  Info
+  Info,
+  Upload,
+  Camera
 } from 'lucide-react';
 import { api } from '../lib/api';
 
@@ -52,7 +54,12 @@ interface FacenoxFaceResult {
 
 export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalProps) {
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [rawErrorDetail, setRawErrorDetail] = useState<string | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
+
+  // Available camera devices
+  const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
 
   // Status message for video overlay
   const [statusMessage, setStatusMessage] = useState<string>('Initializing camera...');
@@ -62,8 +69,12 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
   // Attendance confirmation banner state
   const [lastAttendanceNotice, setLastAttendanceNotice] = useState<AttendanceNotice | null>(null);
 
+  // Static uploaded frame preview state (if testing via photo upload)
+  const [uploadedPreview, setUploadedPreview] = useState<string | null>(null);
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
   const isScanningFrameRef = useRef(false);
@@ -94,29 +105,74 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
     lastFacesRef.current = [];
   }, []);
 
-  // Start camera stream
+  // Enumerate video devices on load
+  const enumerateCameras = useCallback(async () => {
+    try {
+      if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoInputs = devices.filter((d) => d.kind === 'videoinput');
+        setVideoDevices(videoInputs);
+        if (videoInputs.length > 0 && !selectedDeviceId) {
+          setSelectedDeviceId(videoInputs[0].deviceId);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to enumerate cameras:', e);
+    }
+  }, [selectedDeviceId]);
+
+  // Multi-tier resilient camera initialization
   const startCamera = useCallback(async () => {
     try {
       stopCamera();
       setCameraError(null);
+      setRawErrorDetail(null);
       setApiError(null);
+      setUploadedPreview(null);
       setLastAttendanceNotice(null);
       setStatusMessage('Requesting camera access...');
       setStatusLabel('Initializing...');
       setStatusType('info');
 
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('Camera API not supported by this browser.');
+        throw new Error('Camera MediaDevices API is not supported by your browser.');
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-          facingMode: 'user',
-        },
-        audio: false,
-      });
+      let stream: MediaStream | null = null;
+      const deviceConstraints = selectedDeviceId ? { exact: selectedDeviceId } : undefined;
+
+      // Tier 1: Try requested device or ideal 640x480 resolution
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            deviceId: deviceConstraints,
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+            facingMode: selectedDeviceId ? undefined : 'user',
+          },
+          audio: false,
+        });
+      } catch (err1) {
+        console.warn('Camera Tier 1 failed, attempting Tier 2 fallback...', err1);
+        // Tier 2: Try basic deviceId or facingMode
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: selectedDeviceId ? { deviceId: { exact: selectedDeviceId } } : { facingMode: 'user' },
+            audio: false,
+          });
+        } catch (err2) {
+          console.warn('Camera Tier 2 failed, attempting Tier 3 raw video fallback...', err2);
+          // Tier 3: Pure video: true
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false,
+          });
+        }
+      }
+
+      if (!stream) {
+        throw new Error('Could not establish camera stream.');
+      }
 
       streamRef.current = stream;
 
@@ -126,54 +182,55 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
         await videoRef.current.play();
       }
 
+      await enumerateCameras();
+
       setStatusMessage('Facenox biometric scanner active');
       setStatusLabel('Ready');
       setStatusType('info');
     } catch (err: any) {
       console.error('Error accessing camera:', err);
+      setRawErrorDetail(`${err?.name || 'Error'}: ${err?.message || 'Access failed'}`);
+
+      let friendly = 'Could not access camera device.';
       if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
-        setCameraError('Camera permission denied. Please allow webcam permissions in browser settings.');
-      } else {
-        setCameraError('Could not access camera device. Please check hardware connection.');
+        friendly = 'Camera permission blocked. Click the lock/camera icon in your browser URL bar and choose "Allow".';
+      } else if (err?.name === 'NotReadableError' || err?.name === 'TrackStartError') {
+        friendly = 'Camera is currently locked by another application or browser tab. Please close other camera tabs (or apps like Zoom/Camera) and click "Retry Camera".';
+      } else if (err?.name === 'NotFoundError' || err?.name === 'DevicesNotFoundError') {
+        friendly = 'No webcam hardware detected. Please plug in a webcam or upload a frame to test.';
+      } else if (err?.name === 'OverconstrainedError') {
+        friendly = 'The selected camera does not support the requested video resolution. Please choose a different camera below.';
+      } else if (err?.message) {
+        friendly = err.message;
       }
+
+      setCameraError(friendly);
       setStatusLabel('Camera Error');
       setStatusType('error');
     }
-  }, [stopCamera]);
+  }, [stopCamera, selectedDeviceId, enumerateCameras]);
 
-  // Cleanup effect on open/close
+  // Cleanup on open/close
   useEffect(() => {
     if (isOpen) {
       startCamera();
     } else {
       stopCamera();
       setCameraError(null);
+      setRawErrorDetail(null);
       setApiError(null);
       setLastAttendanceNotice(null);
+      setUploadedPreview(null);
     }
     return stopCamera;
   }, [isOpen, startCamera, stopCamera]);
 
-  // Continuous Facenox Frame Processing Loop
-  const scanFacenoxFrame = useCallback(async () => {
-    const video = videoRef.current;
-    if (!video || video.paused || video.ended || video.readyState < 2 || isScanningFrameRef.current) {
-      return;
-    }
-
+  // Frame scanner API caller
+  const processFrameBase64 = useCallback(async (base64Image: string) => {
     try {
       isScanningFrameRef.current = true;
-      const offCanvas = document.createElement('canvas');
-      offCanvas.width = 640;
-      offCanvas.height = 480;
-      const offCtx = offCanvas.getContext('2d');
-      if (!offCtx) return;
-
-      offCtx.drawImage(video, 0, 0, 640, 480);
-      const b64 = offCanvas.toDataURL('image/jpeg', 0.80);
-
       const res = await api.post('/attendance/facenox-scan', {
-        image: b64,
+        image: base64Image,
         auto_mark_attendance: true,
         enable_liveness: true,
         camera_name: 'Terminal-Gate-1',
@@ -224,36 +281,69 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
       }
     } catch (err: any) {
       console.warn('Facenox frame scan error:', err);
-      setApiError('Facenox engine processing delayed');
+      setApiError('Facenox server busy / delayed');
     } finally {
       isScanningFrameRef.current = false;
     }
   }, []);
 
+  // Continuous frame scan loop
+  const scanFacenoxFrame = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video || video.paused || video.ended || video.readyState < 2 || isScanningFrameRef.current) {
+      return;
+    }
+
+    const offCanvas = document.createElement('canvas');
+    offCanvas.width = 640;
+    offCanvas.height = 480;
+    const offCtx = offCanvas.getContext('2d');
+    if (!offCtx) return;
+
+    offCtx.drawImage(video, 0, 0, 640, 480);
+    const b64 = offCanvas.toDataURL('image/jpeg', 0.80);
+    await processFrameBase64(b64);
+  }, [processFrameBase64]);
+
+  // Fallback: Test with uploaded image file
+  const handleUploadTestFrame = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const b64 = reader.result as string;
+      setUploadedPreview(b64);
+      setCameraError(null);
+      setStatusMessage('Analyzing uploaded frame with Facenox...');
+      setStatusLabel('Processing');
+      setStatusType('info');
+      await processFrameBase64(b64);
+    };
+    reader.readAsDataURL(file);
+  };
+
   // Canvas Rendering Overlay
   useEffect(() => {
-    if (!isOpen || cameraError) return;
+    if (!isOpen || (cameraError && !uploadedPreview)) return;
 
     let animId: number;
 
     const renderOverlay = () => {
       const video = videoRef.current;
       const canvas = canvasRef.current;
-      if (!video || !canvas || video.readyState < 2) {
-        animId = requestAnimationFrame(renderOverlay);
-        return;
-      }
+      if (!canvas) return;
 
-      if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
-        canvas.width = video.videoWidth || 640;
-        canvas.height = video.videoHeight || 480;
+      const currentWidth = uploadedPreview ? 640 : (video?.videoWidth || 640);
+      const currentHeight = uploadedPreview ? 480 : (video?.videoHeight || 480);
+
+      if (canvas.width !== currentWidth || canvas.height !== currentHeight) {
+        canvas.width = currentWidth;
+        canvas.height = currentHeight;
       }
 
       const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        animId = requestAnimationFrame(renderOverlay);
-        return;
-      }
+      if (!ctx) return;
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -272,7 +362,6 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
         const isReal = face.liveness?.is_real ?? true;
         const isMatched = face.match_found && face.employee;
 
-        // Box Color: Red for spoof, Emerald for recognized real, Amber for unknown real
         let strokeColor = '#10B981'; // Emerald
         if (!isReal) {
           strokeColor = '#EF4444'; // Red
@@ -286,28 +375,21 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
         ctx.shadowColor = strokeColor;
         ctx.shadowBlur = 10;
 
-        // Corner lengths
         const cornerLen = Math.min(w, h) * 0.22;
 
         // Draw glowing corners
         ctx.beginPath();
-        // Top-left
         ctx.moveTo(x, y + cornerLen); ctx.lineTo(x, y); ctx.lineTo(x + cornerLen, y);
-        // Top-right
         ctx.moveTo(x + w - cornerLen, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + cornerLen);
-        // Bottom-right
         ctx.moveTo(x + w, y + h - cornerLen); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w - cornerLen, y + h);
-        // Bottom-left
         ctx.moveTo(x + cornerLen, y + h); ctx.lineTo(x, y + h); ctx.lineTo(x, y + h - cornerLen);
         ctx.stroke();
 
-        // Shaded fill
         ctx.fillStyle = isReal
           ? (isMatched ? 'rgba(16, 185, 129, 0.08)' : 'rgba(245, 158, 11, 0.08)')
           : 'rgba(239, 68, 68, 0.15)';
         ctx.fillRect(x, y, w, h);
 
-        // Laser scan line inside bounding box
         drawLaserBeam(ctx, x, y, w, h, strokeColor);
 
         ctx.shadowBlur = 0;
@@ -369,7 +451,6 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
           ctx.font = '500 10px Inter, sans-serif';
           ctx.fillText(line3, x + 10, cardY + 49);
         } else if (!isMatched && isReal) {
-          // Unknown Face — Not Registered
           const unkText = 'Unknown Face — Not Registered';
           ctx.font = 'bold 12px Inter, sans-serif';
           const uw = ctx.measureText(unkText).width;
@@ -391,12 +472,14 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
         ctx.restore();
       });
 
-      animId = requestAnimationFrame(renderOverlay);
+      if (!uploadedPreview) {
+        animId = requestAnimationFrame(renderOverlay);
+      }
     };
 
     animId = requestAnimationFrame(renderOverlay);
     return () => cancelAnimationFrame(animId);
-  }, [isOpen, cameraError]);
+  }, [isOpen, cameraError, uploadedPreview]);
 
   // Laser beam animation inside active face box
   const drawLaserBeam = (
@@ -435,12 +518,12 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
 
   // Continuous frame trigger interval (every 280ms)
   useEffect(() => {
-    if (!isOpen || cameraError) return;
+    if (!isOpen || cameraError || uploadedPreview) return;
     const interval = setInterval(() => {
       void scanFacenoxFrame();
     }, 280);
     return () => clearInterval(interval);
-  }, [isOpen, cameraError, scanFacenoxFrame]);
+  }, [isOpen, cameraError, uploadedPreview, scanFacenoxFrame]);
 
   if (!isOpen) return null;
 
@@ -464,40 +547,108 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
               <p className="text-xs text-text-muted">YuNet Detector &bull; Anti-Spoofing &bull; ArcFace 512d &bull; Auto Check-in</p>
             </div>
           </div>
-          <button 
-            onClick={onClose}
-            className="p-1.5 text-text-muted hover:text-text rounded-lg hover:bg-surface transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          
+          <div className="flex items-center gap-2">
+            {videoDevices.length > 1 && (
+              <select
+                value={selectedDeviceId}
+                onChange={(e) => {
+                  setSelectedDeviceId(e.target.value);
+                  setTimeout(startCamera, 50);
+                }}
+                className="bg-[#0a0f1d] border border-border text-white text-[11px] rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+              >
+                {videoDevices.map((d, i) => (
+                  <option key={d.deviceId || i} value={d.deviceId}>
+                    {d.label || `Camera ${i + 1}`}
+                  </option>
+                ))}
+              </select>
+            )}
+            <button 
+              onClick={onClose}
+              className="p-1.5 text-text-muted hover:text-text rounded-lg hover:bg-surface transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Video & Canvas Area */}
         <div className="relative aspect-video bg-black flex items-center justify-center overflow-hidden border-b border-border">
-          {cameraError ? (
-            <div className="flex flex-col items-center gap-3 text-center p-6 bg-danger/10 border border-danger/20 rounded-xl text-danger max-w-md z-20">
-              <CameraOff className="w-10 h-10 shrink-0" />
+          {cameraError && !uploadedPreview ? (
+            <div className="flex flex-col items-center gap-3 text-center p-6 bg-danger/10 border border-danger/20 rounded-xl text-danger max-w-lg z-20 m-4">
+              <CameraOff className="w-10 h-10 shrink-0 text-rose-400" />
               <div>
-                <h3 className="font-bold text-sm">Camera Access Failed</h3>
-                <p className="text-xs mt-1 opacity-90">{cameraError}</p>
+                <h3 className="font-bold text-sm text-white">Camera Access Notice</h3>
+                <p className="text-xs mt-1.5 text-rose-300 leading-relaxed">{cameraError}</p>
+                {rawErrorDetail && (
+                  <p className="text-[10px] font-mono text-text-muted mt-2 bg-black/40 px-2 py-1 rounded">
+                    {rawErrorDetail}
+                  </p>
+                )}
               </div>
-              <button
-                onClick={startCamera}
-                className="mt-2 flex items-center gap-1.5 px-4 py-1.5 bg-danger/20 hover:bg-danger/30 text-danger border border-danger/30 rounded-lg text-xs font-semibold transition-colors"
-              >
-                <RefreshCw className="w-3.5 h-3.5" /> Retry Camera
-              </button>
+
+              {/* Action Buttons: Retry Camera & Upload Test Frame */}
+              <div className="flex flex-wrap items-center justify-center gap-2 mt-2">
+                <button
+                  onClick={startCamera}
+                  className="flex items-center gap-1.5 px-4 py-1.5 bg-danger/20 hover:bg-danger/30 text-danger border border-danger/30 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" /> Retry Camera
+                </button>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-1.5 px-4 py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-lg text-xs font-semibold shadow-md transition-all cursor-pointer"
+                >
+                  <Upload className="w-3.5 h-3.5" /> Upload Test Photo
+                </button>
+              </div>
+
+              <p className="text-[10px] text-text-muted mt-1">
+                Tip: If other tabs named "Face Attendance" are open in your browser, close them so Windows releases the camera lock.
+              </p>
             </div>
           ) : null}
 
-          {/* Live Webcam Stream */}
-          <video 
-            ref={videoRef} 
-            autoPlay 
-            playsInline 
-            muted 
-            className="absolute inset-0 w-full h-full object-cover"
+          {/* Hidden File Input for Image Upload */}
+          <input 
+            ref={fileInputRef}
+            type="file" 
+            accept="image/*" 
+            className="hidden" 
+            onChange={handleUploadTestFrame} 
           />
+
+          {/* Live Webcam Stream or Static Uploaded Image */}
+          {uploadedPreview ? (
+            <div className="relative w-full h-full">
+              <img 
+                src={uploadedPreview} 
+                alt="Uploaded frame" 
+                className="w-full h-full object-cover" 
+              />
+              <div className="absolute top-3 right-3 z-30">
+                <button
+                  onClick={() => {
+                    setUploadedPreview(null);
+                    startCamera();
+                  }}
+                  className="px-3 py-1 bg-black/75 hover:bg-black text-white text-[10px] font-semibold rounded-lg border border-white/20 flex items-center gap-1 shadow-lg"
+                >
+                  <Camera className="w-3 h-3 text-cyan-400" /> Switch to Live Camera
+                </button>
+              </div>
+            </div>
+          ) : (
+            <video 
+              ref={videoRef} 
+              autoPlay 
+              playsInline 
+              muted 
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+          )}
           
           {/* Recognition Bounding Boxes Overlay Canvas */}
           <canvas 
@@ -506,7 +657,7 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
           />
 
           {/* Top Status Badges */}
-          {!cameraError && (
+          {(!cameraError || uploadedPreview) && (
             <div className="absolute top-4 left-4 right-4 flex items-center justify-between z-20 pointer-events-none">
               <div className="flex items-center gap-2 bg-black/70 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/10 text-xs text-white shadow-lg">
                 <span className={`w-2.5 h-2.5 rounded-full ${
@@ -572,12 +723,24 @@ export function FaceRecognitionModal({ isOpen, onClose }: FaceRecognitionModalPr
               Anti-Spoofing: <strong className="text-white">Active</strong> &bull; Engine: <strong className="text-cyan-400">Facenox ArcFace 512d</strong> &bull; Timezone: <strong className="text-white">Asia/Kolkata (IST)</strong>
             </span>
           </div>
-          <button 
-            onClick={onClose}
-            className="px-4 py-1.5 bg-surface hover:bg-surface-hover border border-border text-text rounded-lg text-xs font-semibold transition-colors"
-          >
-            Close Scanner
-          </button>
+
+          <div className="flex items-center gap-2">
+            {!cameraError && (
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="px-3 py-1.5 bg-surface hover:bg-surface-hover border border-border text-text rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5"
+                title="Upload photo to test recognition"
+              >
+                <Upload className="w-3.5 h-3.5 text-cyan-400" /> Test Photo
+              </button>
+            )}
+            <button 
+              onClick={onClose}
+              className="px-4 py-1.5 bg-surface hover:bg-surface-hover border border-border text-text rounded-lg text-xs font-semibold transition-colors"
+            >
+              Close Scanner
+            </button>
+          </div>
         </div>
 
       </div>
