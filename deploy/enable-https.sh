@@ -5,12 +5,19 @@ PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BACKEND_DIR="$PROJECT_DIR/backend"
 FRONTEND_DIR="$PROJECT_DIR/frontend"
 
-echo "==> Generating SSL Certificate for HTTPS..."
+PUBLIC_IP=$(curl -s -m 4 http://checkip.amazonaws.com 2>/dev/null || curl -s -m 4 ifconfig.me 2>/dev/null || echo "18.117.247.217")
+echo "==> Generating SSL Certificate for Public IP: $PUBLIC_IP ..."
 sudo mkdir -p /etc/nginx/ssl
+
 sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
   -keyout /etc/nginx/ssl/selfsigned.key \
   -out /etc/nginx/ssl/selfsigned.crt \
-  -subj "/C=IN/ST=Delhi/L=Delhi/O=AISurveillance/CN=18.117.247.217"
+  -subj "/C=IN/ST=Delhi/L=Delhi/O=AISurveillance/CN=$PUBLIC_IP" \
+  -addext "subjectAltName = IP:$PUBLIC_IP" 2>/dev/null || \
+sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout /etc/nginx/ssl/selfsigned.key \
+  -out /etc/nginx/ssl/selfsigned.crt \
+  -subj "/C=IN/ST=Delhi/L=Delhi/O=AISurveillance/CN=$PUBLIC_IP"
 
 echo "==> Configuring Nginx for HTTP + HTTPS..."
 sudo tee /etc/nginx/conf.d/surveillance.conf > /dev/null <<NGXEOF

@@ -20,7 +20,9 @@ import {
   CheckCircle2,
   Upload,
   Cpu,
-  CameraOff
+  CameraOff,
+  Lock,
+  ShieldAlert
 } from 'lucide-react';
 import { api } from '../lib/api';
 import * as faceapi from 'face-api.js';
@@ -45,8 +47,15 @@ export function FaceRegistrationModal({
   onSuccess,
   initialEmployee = null 
 }: FaceRegistrationModalProps) {
+  const isLocal = typeof window !== 'undefined' && 
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+  const isSecure = typeof window !== 'undefined' && 
+    (window.isSecureContext || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
   // Camera Mode: 'hardware' (DirectShow OpenCV backend) or 'browser' (HTML5 WebRTC)
-  const [cameraMode, setCameraMode] = useState<'hardware' | 'browser'>('hardware');
+  // On cloud / EC2, always default to 'browser' since cloud servers have no physical USB webcam attached
+  const [cameraMode, setCameraMode] = useState<'hardware' | 'browser'>(isLocal ? 'hardware' : 'browser');
 
   // Form fields
   const [name, setName] = useState('');
@@ -179,6 +188,9 @@ export function FaceRegistrationModal({
       setStatusMessage('Center your face in the guide box');
 
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        if (!isSecure) {
+          throw new Error('INSECURE_ORIGIN');
+        }
         throw new Error('Camera device API not supported by browser.');
       }
 
@@ -211,15 +223,15 @@ export function FaceRegistrationModal({
       }
     } catch (err: any) {
       console.warn('Browser webcam access error:', err);
-      let friendly = 'Browser webcam blocked or unavailable. Switch to Direct USB WebCam mode below.';
-      if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
-        friendly = 'Camera permission blocked. Please allow webcam in Chrome URL bar, or click Direct USB WebCam.';
-      } else if (err?.name === 'NotFoundError' || err?.name === 'DevicesNotFoundError') {
-        friendly = 'Browser could not find camera device. Switch to Direct USB WebCam (Recommended).';
+      if (err?.message === 'INSECURE_ORIGIN' || !isSecure) {
+        setCameraError('INSECURE_ORIGIN');
+      } else if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
+        setCameraError('PERMISSION_DENIED');
+      } else {
+        setCameraError(err?.message || 'Camera blocked');
       }
-      setCameraError(friendly);
     }
-  }, [stopBrowserCamera, stopHardwarePolling]);
+  }, [stopBrowserCamera, stopHardwarePolling, isSecure]);
 
   // Polling loop for Native Hardware WebCam (DirectShow)
   const pollHardwareEnrollment = useCallback(async () => {
@@ -344,6 +356,13 @@ export function FaceRegistrationModal({
     };
     reader.readAsDataURL(file);
   };
+
+  // Auto-switch to browser camera when opened on EC2/Cloud
+  useEffect(() => {
+    if (isOpen && !isLocal) {
+      setCameraMode('browser');
+    }
+  }, [isOpen, isLocal]);
 
   // Main lifecycle for camera modes
   useEffect(() => {
@@ -947,28 +966,91 @@ export function FaceRegistrationModal({
                         />
                       </div>
                     ) : (
-                      <div className="flex flex-col items-center justify-center h-full gap-2 text-text-muted text-xs">
-                        <RefreshCw className="w-6 h-6 animate-spin text-cyan-400" />
-                        <span>Connecting to USB WebCam...</span>
+                      <div className="flex flex-col items-center justify-center h-full gap-3 p-6 text-center text-xs">
+                        {!isLocal ? (
+                          <>
+                            <div className="w-12 h-12 rounded-full bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+                              <Cpu className="w-6 h-6" />
+                            </div>
+                            <div>
+                              <h4 className="font-bold text-sm text-white">Direct USB WebCam is for Local Host</h4>
+                              <p className="text-xs text-slate-300 mt-1 leading-relaxed max-w-xs">
+                                Cloud servers have no physical USB camera. Switch to <strong>Browser Cam</strong> to scan from your laptop.
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCameraMode('browser');
+                                setCameraError(null);
+                              }}
+                              className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-lg text-xs font-semibold shadow-md transition-all flex items-center gap-1.5 cursor-pointer mt-1"
+                            >
+                              <Camera className="w-3.5 h-3.5" /> Switch to Browser Cam
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="w-6 h-6 animate-spin text-cyan-400" />
+                            <span className="text-text-muted">Connecting to USB WebCam...</span>
+                          </>
+                        )}
                       </div>
                     )
                   ) : cameraMode === 'browser' && cameraError ? (
-                    <div className="flex flex-col items-center justify-center h-full p-6 text-center gap-3">
-                      <CameraOff className="w-10 h-10 text-rose-400" />
-                      <p className="text-xs text-rose-300 max-w-sm">
-                        Browser camera access not available. Switch to <strong>Direct USB WebCam</strong> below.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCameraMode('hardware');
-                          setCameraError(null);
-                        }}
-                        className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-md"
-                      >
-                        <Cpu className="w-3.5 h-3.5" /> Switch to Direct USB WebCam
-                      </button>
-                    </div>
+                    cameraError === 'INSECURE_ORIGIN' ? (
+                      <div className="flex flex-col items-center justify-center h-full p-4 text-center gap-2 max-w-md mx-auto">
+                        <div className="w-10 h-10 rounded-full bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                          <ShieldAlert className="w-5 h-5" />
+                        </div>
+                        <h4 className="font-bold text-xs text-white">Browser Camera Security (HTTPS Required)</h4>
+                        <p className="text-[11px] text-slate-300 leading-snug">
+                          Chrome blocks webcam access over plain HTTP on IP addresses. Enable in Chrome or upload photo:
+                        </p>
+                        <div className="bg-black/60 p-2.5 rounded-lg border border-white/10 text-left text-[11px] text-slate-300 space-y-1 w-full">
+                          <div><strong>Option A:</strong> <span className="font-mono text-cyan-300 select-all text-[10px]">chrome://flags/#unsafely-treat-insecure-origin-as-secure</span> &bull; add http://{typeof window !== 'undefined' ? window.location.host : '18.117.247.217'} &bull; Enabled &bull; Relaunch</div>
+                          <div><strong>Option B:</strong> Run <code className="text-emerald-300 font-mono text-[10px]">bash deploy/enable-https.sh</code> on EC2.</div>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-center gap-2 mt-1">
+                          <a
+                            href={typeof window !== 'undefined' ? `https://${window.location.host}${window.location.pathname}` : '#'}
+                            className="px-3 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg text-[11px] font-semibold flex items-center gap-1 shadow-md"
+                          >
+                            <Lock className="w-3 h-3" /> Open via HTTPS
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            className="px-3 py-1.5 bg-surface hover:bg-surface-hover border border-border text-text rounded-lg text-[11px] font-semibold flex items-center gap-1"
+                          >
+                            <Upload className="w-3 h-3 text-cyan-400" /> Upload Photo
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center h-full p-6 text-center gap-3">
+                        <CameraOff className="w-10 h-10 text-rose-400" />
+                        <p className="text-xs text-rose-300 max-w-sm">
+                          Browser camera access blocked. Please allow camera in Chrome settings.
+                        </p>
+                        <div className="flex flex-wrap items-center justify-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => startBrowserCamera()}
+                            className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" /> Retry Camera
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            className="px-3 py-1.5 bg-surface hover:bg-surface-hover border border-border text-text rounded-lg text-xs font-semibold flex items-center gap-1"
+                          >
+                            <Upload className="w-3.5 h-3.5 text-cyan-400" /> Upload Photo
+                          </button>
+                        </div>
+                      </div>
+                    )
                   ) : (
                     <>
                       <video 

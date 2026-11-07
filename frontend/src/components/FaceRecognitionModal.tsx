@@ -12,7 +12,9 @@ import {
   Camera,
   Cpu,
   UserCheck,
-  Loader2
+  Loader2,
+  Lock,
+  ShieldAlert
 } from 'lucide-react';
 import { api } from '../lib/api';
 
@@ -57,8 +59,15 @@ interface FacenoxFaceResult {
 }
 
 export function FaceRecognitionModal({ isOpen, onClose, onSuccess }: FaceRecognitionModalProps) {
+  const isLocal = typeof window !== 'undefined' && 
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+  const isSecure = typeof window !== 'undefined' && 
+    (window.isSecureContext || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
   // Camera Mode: 'hardware' (DirectShow OpenCV backend) or 'browser' (HTML5 WebRTC)
-  const [cameraMode, setCameraMode] = useState<'hardware' | 'browser'>('hardware');
+  // Default to 'hardware' only on localhost (where physical webcam exists); on Cloud/EC2 default to 'browser'
+  const [cameraMode, setCameraMode] = useState<'hardware' | 'browser'>(isLocal ? 'hardware' : 'browser');
 
   const [activeEmployee, setActiveEmployee] = useState<RecognizedEmployee | null>(null);
   const [submittingAttendance, setSubmittingAttendance] = useState(false);
@@ -109,6 +118,63 @@ export function FaceRecognitionModal({ isOpen, onClose, onSuccess }: FaceRecogni
     lastFacesRef.current = [];
   }, []);
 
+  // Auto-switch to browser camera when opened on EC2/Cloud
+  useEffect(() => {
+    if (isOpen && !isLocal) {
+      setCameraMode('browser');
+    }
+  }, [isOpen, isLocal]);
+
+  // Unified face detection and attendance state handler (used by Hardware, Browser Cam & Photo upload)
+  const handleDetectionFaces = useCallback((faces: FacenoxFaceResult[], timestamp?: string) => {
+    lastFacesRef.current = faces;
+
+    if (faces.length === 0) {
+      setStatusLabel('Scanning');
+      setStatusMessage('Looking for human faces...');
+      setStatusType('info');
+      setActiveEmployee(null);
+    } else {
+      const firstFace = faces[0];
+      const isMatched = Boolean(firstFace.match_found && firstFace.employee);
+
+      if (isMatched && firstFace.employee) {
+        setActiveEmployee(firstFace.employee);
+        setStatusLabel('Recognized');
+        setStatusMessage(`${firstFace.employee.name} (${Math.round(firstFace.confidence * 100)}%)`);
+        setStatusType('success');
+
+        if (firstFace.attendance_marked) {
+          setLastAttendanceNotice({
+            name: firstFace.employee.name,
+            employee_id: firstFace.employee.employee_id,
+            check_in: firstFace.attendance_time || timestamp || 'Now',
+            status: 'Marked',
+          });
+          onSuccess?.();
+        } else if (firstFace.attendance_already_marked) {
+          setLastAttendanceNotice({
+            name: firstFace.employee.name,
+            employee_id: firstFace.employee.employee_id,
+            check_in: firstFace.attendance_time || 'Earlier today',
+            status: 'Already Marked',
+          });
+          onSuccess?.();
+        }
+      } else if (!firstFace.liveness?.is_real && !isMatched) {
+        setStatusLabel('Spoof Alert');
+        setStatusMessage(`Anti-spoofing alert: ${firstFace.liveness?.status || 'Spoof'}`);
+        setStatusType('error');
+        setActiveEmployee(null);
+      } else {
+        setStatusLabel('Unrecognized');
+        setStatusMessage('Unknown Face — Not Registered');
+        setStatusType('warning');
+        setActiveEmployee(null);
+      }
+    }
+  }, [onSuccess]);
+
   // Hardware Camera Direct Polling Loop
   const pollHardwareCamera = useCallback(async () => {
     if (isScanningFrameRef.current) return;
@@ -125,61 +191,21 @@ export function FaceRecognitionModal({ isOpen, onClose, onSuccess }: FaceRecogni
         }
 
         const faces: FacenoxFaceResult[] = res.data.faces || [];
-        lastFacesRef.current = faces;
-
-        if (faces.length === 0) {
-          setStatusLabel('Scanning');
-          setStatusMessage('Looking for human faces...');
-          setStatusType('info');
-          setActiveEmployee(null);
-        } else {
-          const firstFace = faces[0];
-          const isMatched = firstFace.match_found && firstFace.employee;
-
-          if (isMatched && firstFace.employee) {
-            setActiveEmployee(firstFace.employee);
-            setStatusLabel('Recognized');
-            setStatusMessage(`${firstFace.employee.name} (${Math.round(firstFace.confidence * 100)}%)`);
-            setStatusType('success');
-
-            if (firstFace.attendance_marked) {
-              setLastAttendanceNotice({
-                name: firstFace.employee.name,
-                employee_id: firstFace.employee.employee_id,
-                check_in: firstFace.attendance_time || res.data.timestamp_ist || 'Now',
-                status: 'Marked',
-              });
-              onSuccess?.();
-            } else if (firstFace.attendance_already_marked) {
-              setLastAttendanceNotice({
-                name: firstFace.employee.name,
-                employee_id: firstFace.employee.employee_id,
-                check_in: firstFace.attendance_time || 'Earlier today',
-                status: 'Already Marked',
-              });
-              onSuccess?.();
-            }
-          } else if (!firstFace.liveness.is_real && !isMatched) {
-            setStatusLabel('Spoof Alert');
-            setStatusMessage(`Anti-spoofing alert: ${firstFace.liveness.status}`);
-            setStatusType('error');
-            setActiveEmployee(null);
-          } else {
-            setStatusLabel('Unrecognized');
-            setStatusMessage('Unknown Face — Not Registered');
-            setStatusType('warning');
-            setActiveEmployee(null);
-          }
-        }
+        handleDetectionFaces(faces, res.data.timestamp_ist);
       } else if (res.data?.error) {
         setCameraError(res.data.error);
+        if (!isLocal) {
+          setStatusLabel('Hardware Notice');
+          setStatusMessage('No USB camera on EC2 server. Switch to Browser Cam.');
+          setStatusType('warning');
+        }
       }
     } catch (err: any) {
       console.warn('Hardware camera scan error:', err);
     } finally {
       isScanningFrameRef.current = false;
     }
-  }, []);
+  }, [handleDetectionFaces, isLocal]);
 
   // Browser Camera Stream Starter (with progressive fallback)
   const startBrowserCamera = useCallback(async () => {
@@ -195,6 +221,11 @@ export function FaceRecognitionModal({ isOpen, onClose, onSuccess }: FaceRecogni
       setStatusType('info');
 
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        if (!isSecure) {
+          const insecureErr = new Error('INSECURE_ORIGIN');
+          insecureErr.name = 'InsecureOriginError';
+          throw insecureErr;
+        }
         throw new Error('Camera MediaDevices API is not supported by your browser.');
       }
 
@@ -230,12 +261,26 @@ export function FaceRecognitionModal({ isOpen, onClose, onSuccess }: FaceRecogni
       setStatusType('info');
     } catch (err: any) {
       console.error('Browser camera access error:', err);
-      setRawErrorDetail(`${err?.name || 'Error'}: ${err?.message || 'Access failed'}`);
-      setCameraError('Browser webcam blocked. Switching to Direct Hardware Camera recommended.');
-      setStatusLabel('Camera Notice');
-      setStatusType('error');
+      if (err.message === 'INSECURE_ORIGIN' || !isSecure) {
+        setCameraError('INSECURE_ORIGIN');
+        setRawErrorDetail('Camera blocked by browser: HTTP origin on public IP is not a Secure Context. Switch to HTTPS or enable Chrome Insecure Origin flag.');
+        setStatusLabel('HTTPS Required');
+        setStatusMessage('Camera requires HTTPS on remote IP');
+        setStatusType('warning');
+      } else if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setCameraError('PERMISSION_DENIED');
+        setRawErrorDetail('Camera permission denied by user. Click the camera icon in Chrome address bar to Allow.');
+        setStatusLabel('Permission Denied');
+        setStatusMessage('Please allow camera in Chrome');
+        setStatusType('error');
+      } else {
+        setCameraError(err.message || 'Camera access failed.');
+        setRawErrorDetail(`${err?.name || 'Error'}: ${err?.message || 'Access failed'}`);
+        setStatusLabel('Camera Notice');
+        setStatusType('error');
+      }
     }
-  }, [stopCamera]);
+  }, [stopCamera, isSecure]);
 
   // Main lifecycle effect
   useEffect(() => {
@@ -329,26 +374,14 @@ export function FaceRecognitionModal({ isOpen, onClose, onSuccess }: FaceRecogni
       if (res.data?.success) {
         setApiError(null);
         const faces: FacenoxFaceResult[] = res.data.faces || [];
-        lastFacesRef.current = faces;
-        if (faces.length > 0 && faces[0].employee) {
-          setActiveEmployee(faces[0].employee);
-          if (faces[0].attendance_marked) {
-            setLastAttendanceNotice({
-              name: faces[0].employee.name,
-              employee_id: faces[0].employee.employee_id,
-              check_in: faces[0].attendance_time || 'Now',
-              status: 'Marked',
-            });
-            onSuccess?.();
-          }
-        }
+        handleDetectionFaces(faces, res.data.timestamp_ist);
       }
     } catch (err: any) {
       console.warn('Browser frame scan error:', err);
     } finally {
       isScanningFrameRef.current = false;
     }
-  }, [onSuccess]);
+  }, [handleDetectionFaces]);
 
   // Interval for browser mode
   useEffect(() => {
@@ -381,16 +414,8 @@ export function FaceRecognitionModal({ isOpen, onClose, onSuccess }: FaceRecogni
           camera_name: 'Upload-Terminal',
         });
         if (res.data?.success) {
-          lastFacesRef.current = res.data.faces || [];
-          if (res.data.faces?.[0]?.attendance_marked) {
-            const f = res.data.faces[0];
-            setLastAttendanceNotice({
-              name: f.employee.name,
-              employee_id: f.employee.employee_id,
-              check_in: f.attendance_time || 'Now',
-              status: 'Marked',
-            });
-          }
+          const faces: FacenoxFaceResult[] = res.data.faces || [];
+          handleDetectionFaces(faces, res.data.timestamp_ist);
         }
       } catch (err) {
         console.error('Upload test error:', err);
@@ -649,35 +674,85 @@ export function FaceRecognitionModal({ isOpen, onClose, onSuccess }: FaceRecogni
         {/* Video & Canvas Area */}
         <div className="relative aspect-video bg-black flex items-center justify-center overflow-hidden border-b border-border">
           {cameraMode === 'browser' && cameraError && !uploadedPreview ? (
-            <div className="flex flex-col items-center gap-3 text-center p-6 bg-danger/10 border border-danger/20 rounded-xl text-danger max-w-lg z-20 m-4">
-              <CameraOff className="w-10 h-10 shrink-0 text-rose-400" />
-              <div>
-                <h3 className="font-bold text-sm text-white">Browser Camera Notice</h3>
-                <p className="text-xs mt-1.5 text-rose-300 leading-relaxed">
-                  Browser camera access not available. Click below to use <strong>Direct USB WebCam</strong> (works immediately without browser permissions).
-                </p>
-                {rawErrorDetail && (
-                  <p className="text-[10px] font-mono text-text-muted mt-2 bg-black/40 px-2 py-1 rounded">
-                    {rawErrorDetail}
+            cameraError === 'INSECURE_ORIGIN' ? (
+              <div className="flex flex-col items-center gap-3 text-center p-5 bg-[#0b1329]/95 border border-amber-500/40 rounded-2xl max-w-lg z-20 m-3 shadow-2xl backdrop-blur-md animate-in zoom-in-95 duration-150">
+                <div className="w-12 h-12 rounded-full bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                  <ShieldAlert className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-white flex items-center justify-center gap-1.5">
+                    <span>Webcam Access on Cloud (HTTPS Required)</span>
+                  </h3>
+                  <p className="text-xs mt-1 text-slate-300 leading-relaxed">
+                    Chrome & Edge protect your camera by blocking webcam access over plain HTTP on remote IP addresses (<code className="text-amber-300 font-mono text-[11px] bg-black/40 px-1 py-0.5 rounded">{typeof window !== 'undefined' ? window.location.host : 'EC2'}</code>).
                   </p>
-                )}
-              </div>
 
-              <div className="flex flex-wrap items-center justify-center gap-2 mt-2">
-                <button
-                  onClick={() => setCameraMode('hardware')}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-lg text-xs font-semibold shadow-md transition-all cursor-pointer"
-                >
-                  <Cpu className="w-3.5 h-3.5" /> Switch to Direct USB WebCam
-                </button>
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-surface hover:bg-surface-hover text-text border border-border rounded-lg text-xs font-semibold transition-all cursor-pointer"
-                >
-                  <Upload className="w-3.5 h-3.5 text-cyan-400" /> Test with Photo
-                </button>
+                  <div className="mt-3 text-left bg-black/60 p-3 rounded-xl border border-white/10 space-y-2 text-xs">
+                    <div className="font-semibold text-cyan-300 flex items-center gap-1">
+                      <Zap className="w-3.5 h-3.5 text-cyan-400" /> Easy Solution (Choose 1):
+                    </div>
+                    <div className="text-slate-300">
+                      <strong className="text-white">Option A (Fastest in Chrome — 10 sec):</strong><br />
+                      1. Open new tab: <span className="text-cyan-300 font-mono select-all">chrome://flags/#unsafely-treat-insecure-origin-as-secure</span><br />
+                      2. Add <span className="text-amber-300 font-mono select-all">http://{typeof window !== 'undefined' ? window.location.host : '18.117.247.217'}</span> &bull; Click <strong>Enabled</strong> &bull; Click <strong>Relaunch</strong>.
+                    </div>
+                    <div className="text-slate-300 pt-1.5 border-t border-white/10">
+                      <strong className="text-white">Option B (Switch to HTTPS):</strong><br />
+                      Run <code className="text-emerald-300 font-mono">bash deploy/enable-https.sh</code> on EC2, then click Open via HTTPS below.
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-center gap-2 mt-1">
+                  <a
+                    href={typeof window !== 'undefined' ? `https://${window.location.host}${window.location.pathname}` : '#'}
+                    className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-lg text-xs font-semibold shadow-md transition-all cursor-pointer"
+                  >
+                    <Lock className="w-3.5 h-3.5" /> Open via HTTPS
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex items-center gap-1.5 px-3.5 py-2 bg-surface hover:bg-surface-hover text-text border border-border rounded-lg text-xs font-semibold transition-all cursor-pointer"
+                  >
+                    <Upload className="w-3.5 h-3.5 text-cyan-400" /> Test with Photo
+                  </button>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="flex flex-col items-center gap-3 text-center p-6 bg-danger/10 border border-danger/20 rounded-xl text-danger max-w-lg z-20 m-4">
+                <CameraOff className="w-10 h-10 shrink-0 text-rose-400" />
+                <div>
+                  <h3 className="font-bold text-sm text-white">Browser Camera Notice</h3>
+                  <p className="text-xs mt-1.5 text-rose-300 leading-relaxed">
+                    {rawErrorDetail || 'Browser webcam access not available. Check browser permissions.'}
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-center gap-2 mt-2">
+                  <button
+                    onClick={() => startBrowserCamera()}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-lg text-xs font-semibold shadow-md transition-all cursor-pointer"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" /> Retry Camera
+                  </button>
+                  {isLocal && (
+                    <button
+                      onClick={() => setCameraMode('hardware')}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-lg text-xs font-semibold shadow-md transition-all cursor-pointer"
+                    >
+                      <Cpu className="w-3.5 h-3.5" /> Switch to Direct USB WebCam
+                    </button>
+                  )}
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-surface hover:bg-surface-hover text-text border border-border rounded-lg text-xs font-semibold transition-all cursor-pointer"
+                  >
+                    <Upload className="w-3.5 h-3.5 text-cyan-400" /> Test with Photo
+                  </button>
+                </div>
+              </div>
+            )
           ) : null}
 
           {/* Hidden File Input for Image Upload */}
@@ -701,7 +776,7 @@ export function FaceRecognitionModal({ isOpen, onClose, onSuccess }: FaceRecogni
                 <button
                   onClick={() => {
                     setUploadedPreview(null);
-                    setCameraMode('hardware');
+                    setCameraMode(isLocal ? 'hardware' : 'browser');
                   }}
                   className="px-3 py-1 bg-black/75 hover:bg-black text-white text-[10px] font-semibold rounded-lg border border-white/20 flex items-center gap-1 shadow-lg"
                 >
@@ -717,9 +792,32 @@ export function FaceRecognitionModal({ isOpen, onClose, onSuccess }: FaceRecogni
                 className="absolute inset-0 w-full h-full object-cover" 
               />
             ) : (
-              <div className="flex flex-col items-center gap-2 text-text-muted text-xs">
-                <RefreshCw className="w-6 h-6 animate-spin text-cyan-400" />
-                <span>Connecting to USB2.0 HD UVC WebCam...</span>
+              <div className="flex flex-col items-center gap-3 text-center p-6 bg-[#0c1427]/90 border border-cyan-500/20 rounded-2xl max-w-md z-20 m-4 shadow-xl">
+                {!isLocal ? (
+                  <>
+                    <div className="w-12 h-12 rounded-full bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+                      <Cpu className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-sm text-white">Direct USB WebCam is for Local Host</h4>
+                      <p className="text-xs text-slate-300 mt-1.5 leading-relaxed">
+                        This system is deployed on <strong>AWS EC2 Cloud</strong> (which has no physical USB webcam attached). Switch to <strong>Browser Cam</strong> to scan from your laptop camera.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setCameraMode('browser')}
+                      className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-lg text-xs font-semibold shadow-md transition-all flex items-center gap-1.5 cursor-pointer mt-1"
+                    >
+                      <Camera className="w-3.5 h-3.5" /> Switch to Browser Cam
+                    </button>
+                  </>
+                ) : (
+                  <div className="flex flex-col items-center gap-2 text-text-muted text-xs">
+                    <RefreshCw className="w-6 h-6 animate-spin text-cyan-400" />
+                    <span>Connecting to USB2.0 HD UVC WebCam...</span>
+                  </div>
+                )}
               </div>
             )
           ) : (

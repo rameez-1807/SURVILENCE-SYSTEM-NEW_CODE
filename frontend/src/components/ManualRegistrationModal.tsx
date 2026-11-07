@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Check, Loader2, Camera, UserCheck, ShieldCheck, UserPlus, CalendarClock, AlertTriangle } from 'lucide-react';
+import { X, Check, Loader2, Camera, UserCheck, ShieldCheck, UserPlus, CalendarClock, AlertTriangle, Upload } from 'lucide-react';
 import * as faceapi from 'face-api.js';
 import { api } from '../lib/api';
 
@@ -11,6 +11,9 @@ interface ManualRegistrationModalProps {
 }
 
 export function ManualRegistrationModal({ isOpen, onClose, onSuccess, type: initialType }: ManualRegistrationModalProps) {
+  const isSecure = typeof window !== 'undefined' && 
+    (window.isSecureContext || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
   const [modalMode, setModalMode] = useState<'employees' | 'records'>(initialType || 'records');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,6 +45,7 @@ export function ManualRegistrationModal({ isOpen, onClose, onSuccess, type: init
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const intervalRef = useRef<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Sync mode with prop when opened
   useEffect(() => {
@@ -123,6 +127,53 @@ export function ManualRegistrationModal({ isOpen, onClose, onSuccess, type: init
     }
   }, []);
 
+  // Photo Upload Handler for enrollment / attendance
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const b64 = reader.result as string;
+      setCapturedFaceImage(b64);
+      setFaceDetected(true);
+      setError(null);
+      stopCamera();
+
+      // Attempt client-side faceapi detection if models loaded
+      if (modelsLoaded) {
+        try {
+          const img = new Image();
+          img.src = b64;
+          img.onload = async () => {
+            try {
+              const detection = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
+              if (detection) {
+                const descriptorArray = Array.from(detection.descriptor);
+                const res = await api.post('/employees/recognize', {
+                  face_encoding: descriptorArray
+                });
+                if (res.data.match_found && res.data.employee) {
+                  setScanResult(res.data);
+                  setEmpId(prev => prev || res.data.employee.employee_id);
+                  setName(prev => prev || res.data.employee.name);
+                  if (res.data.employee.department) {
+                    setDepartment(prev => prev || res.data.employee.department);
+                  }
+                }
+              }
+            } catch {
+              // Ignore
+            }
+          };
+        } catch {
+          // Ignore
+        }
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   // Start webcam and face detection
   const startCameraAndScan = async () => {
     setIsScanning(true);
@@ -130,6 +181,16 @@ export function ManualRegistrationModal({ isOpen, onClose, onSuccess, type: init
     setError(null);
     setFaceDetected(false);
     try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        if (!isSecure) {
+          setError('Camera blocked by browser: Public HTTP IP requires HTTPS or Chrome Insecure Origin Flag. Click "Upload Photo" below to continue.');
+        } else {
+          setError('Camera MediaDevices API not supported by browser. Click "Upload Photo" below.');
+        }
+        setIsScanning(false);
+        return;
+      }
+
       let stream: MediaStream | null = null;
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -180,8 +241,12 @@ export function ManualRegistrationModal({ isOpen, onClose, onSuccess, type: init
         }
       }, 700);
 
-    } catch (err) {
-      setError('Could not access camera device. Check webcam permissions.');
+    } catch (err: any) {
+      if (!isSecure) {
+        setError('Camera blocked on HTTP IP. Use HTTPS (https://), or enable chrome://flags/#unsafely-treat-insecure-origin-as-secure, or click "Upload Photo".');
+      } else {
+        setError('Could not access camera device. Check webcam permissions.');
+      }
       setIsScanning(false);
     }
   };
@@ -366,11 +431,26 @@ export function ManualRegistrationModal({ isOpen, onClose, onSuccess, type: init
                 </span>
               </div>
               <div className="flex items-center gap-1.5">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handlePhotoUpload}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-1 text-[11px] bg-surface hover:bg-surface-hover border border-border text-text px-2.5 py-1 rounded-md transition-all font-semibold cursor-pointer"
+                  title="Upload portrait photo directly"
+                >
+                  <Upload className="w-3 h-3 text-cyan-400" /> Upload Photo
+                </button>
                 {!isScanning ? (
                   <button 
                     type="button"
                     onClick={startCameraAndScan} 
-                    className="flex items-center gap-1 text-[11px] bg-cyan-600 hover:bg-cyan-500 text-white px-2.5 py-1 rounded-md transition-all font-semibold"
+                    className="flex items-center gap-1 text-[11px] bg-cyan-600 hover:bg-cyan-500 text-white px-2.5 py-1 rounded-md transition-all font-semibold cursor-pointer"
                   >
                     <Camera className="w-3 h-3" /> Start Cam
                   </button>
@@ -378,7 +458,7 @@ export function ManualRegistrationModal({ isOpen, onClose, onSuccess, type: init
                   <button 
                     type="button"
                     onClick={handleManualCapture}
-                    className="flex items-center gap-1 text-[11px] bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1 rounded-md transition-all font-semibold shadow-sm"
+                    className="flex items-center gap-1 text-[11px] bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1 rounded-md transition-all font-semibold shadow-sm cursor-pointer"
                   >
                     <Check className="w-3 h-3" /> Capture Face
                   </button>
