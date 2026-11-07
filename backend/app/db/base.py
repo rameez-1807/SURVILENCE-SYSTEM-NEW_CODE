@@ -51,12 +51,14 @@ class SafeUUID(TypeDecorator):
         if value is None:
             return None
         if isinstance(value, uuid.UUID):
-            if dialect and dialect.name == "mysql":
-                return value.hex
             return str(value)
         val_str = str(value).strip()
-        if dialect and dialect.name == "mysql":
-            return val_str.replace("-", "")
+        try:
+            clean_hex = val_str.replace("-", "")
+            if len(clean_hex) == 32:
+                return str(uuid.UUID(hex=clean_hex))
+        except Exception:
+            pass
         return val_str
 
     def process_result_value(self, value, dialect):

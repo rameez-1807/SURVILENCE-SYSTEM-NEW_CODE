@@ -22,10 +22,26 @@ class EmployeeRepository:
         return result.scalar_one_or_none()
 
     async def get_by_employee_id(self, employee_id: str) -> Optional[Employee]:
-        """Get an employee by their unique string employee_id."""
-        stmt = select(Employee).where(Employee.employee_id == employee_id.strip())
+        """Get an employee by their unique string employee_id with resilient variant matching."""
+        clean_id = employee_id.strip()
+        stmt = select(Employee).where(Employee.employee_id == clean_id)
         result = await self.db.execute(stmt)
-        return result.scalar_one_or_none()
+        emp = result.scalar_one_or_none()
+        if not emp:
+            variants = [
+                clean_id.replace(" ", "-"),
+                clean_id.replace("-", " "),
+                f"EMP-{clean_id}" if not clean_id.upper().startswith("EMP") else clean_id[4:].strip(),
+                clean_id.replace("EMP-", "").replace("EMP ", "").strip(),
+            ]
+            for v in variants:
+                if v and v != clean_id:
+                    stmt = select(Employee).where(Employee.employee_id == v)
+                    result = await self.db.execute(stmt)
+                    emp = result.scalar_one_or_none()
+                    if emp:
+                        break
+        return emp
 
     async def exists_employee_id(self, employee_id: str) -> bool:
         """Check if an employee ID already exists."""
