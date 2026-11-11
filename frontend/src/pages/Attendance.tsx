@@ -14,7 +14,9 @@ import {
   CheckCircle2,
   Zap,
   Trash2,
-  UserPlus
+  UserPlus,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { PageHeader } from '../components/ui/PageHeader';
@@ -42,12 +44,21 @@ export default function Attendance() {
   const [dateFilter, setDateFilter] = useState('');
   const [siteFilter, setSiteFilter] = useState('all');
   const [employeeFilter, setEmployeeFilter] = useState('all');
+
+  // Pagination States
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   
   // Registration Modal State
   const [isRegistrationModalOpen, setIsRegistrationModalOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<any | null>(null);
   const [isManualRegistrationOpen, setIsManualRegistrationOpen] = useState(false);
   const [isRecognitionModalOpen, setIsRecognitionModalOpen] = useState(false);
+
+  // Reset pagination to page 1 whenever filters or tab or pageSize change
+  useEffect(() => {
+    setPage(1);
+  }, [search, dateFilter, siteFilter, employeeFilter, activeTab, pageSize]);
 
   const handleDeleteFace = async (emp: any) => {
     if (!window.confirm(`Are you sure you want to remove biometric face data for ${emp.name} (${emp.employee_id})? The employee profile will be preserved.`)) {
@@ -72,8 +83,8 @@ export default function Attendance() {
       setApiMissing(false);
       
       const [empRes, attRes] = await Promise.allSettled([
-        api.get('/employees?limit=200'),
-        api.get('/attendance?limit=500')
+        api.get('/employees?limit=500'),
+        api.get('/attendance?limit=1000')
       ]);
 
       if (empRes.status === 'fulfilled') {
@@ -130,6 +141,16 @@ export default function Attendance() {
     const matchesDate = !dateFilter || rec.attendance_date === dateFilter;
     return matchesSearch && matchesDate;
   });
+
+  const activeItems = activeTab === 'records' ? filteredRecords : filteredEmployees;
+  const totalItems = activeItems.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const startIndex = (safePage - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, totalItems);
+
+  const displayedRecords = filteredRecords.slice(startIndex, endIndex);
+  const displayedEmployees = filteredEmployees.slice(startIndex, endIndex);
 
   return (
     <div className="space-y-6 animate-fade-in select-none">
@@ -333,6 +354,82 @@ export default function Attendance() {
           </div>
         </div>
 
+        {/* Top Pagination & Quick Navigation Bar */}
+        <div className="px-4 py-2.5 bg-[#050811]/90 border-b border-border/60 flex flex-wrap items-center justify-between gap-3 text-xs">
+          {/* Left: Range and Count */}
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <div className="flex items-center gap-1.5 text-text-muted font-mono text-[11px]">
+              <span>SHOWING</span>
+              <span className="font-bold text-white px-1.5 py-0.5 rounded bg-white/5 border border-white/10 font-mono">
+                {totalItems === 0 ? 0 : startIndex + 1}–{endIndex}
+              </span>
+              <span>OF</span>
+              <span className="font-bold text-cyan-400 font-mono">{totalItems}</span>
+              <span>{activeTab === 'records' ? 'RECORDS' : 'PERSONNEL'}</span>
+            </div>
+
+            <div className="h-3.5 w-px bg-border/60 hidden sm:block" />
+
+            {/* Rows Per Page */}
+            <div className="flex items-center gap-1.5 text-[11px] text-text-muted">
+              <span>Per page:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                className="bg-[#0a0f1d] border border-border/80 rounded-lg px-2 py-0.5 text-white font-mono text-xs focus:outline-none focus:ring-1 focus:ring-cyan-500/40 cursor-pointer"
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Right: Top Pagination Controls */}
+          <div className="flex items-center gap-1.5 font-mono text-xs">
+            <button
+              onClick={() => setPage(1)}
+              disabled={safePage <= 1}
+              className="px-2 py-1 rounded-lg border border-border/80 hover:bg-surface-hover text-text-muted hover:text-white disabled:opacity-30 disabled:cursor-not-allowed text-[11px] transition-colors"
+              title="First Page"
+            >
+              First
+            </button>
+            <button
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={safePage <= 1}
+              className="p-1 rounded-lg border border-border/80 hover:bg-surface-hover text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              title="Previous Page"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+
+            <div className="flex items-center gap-1 px-1">
+              <span className="text-text-muted text-[11px]">Page</span>
+              <span className="font-bold text-cyan-400 px-1">{safePage}</span>
+              <span className="text-text-muted text-[11px]">/ {totalPages}</span>
+            </div>
+
+            <button
+              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+              disabled={safePage >= totalPages}
+              className="p-1 rounded-lg border border-border/80 hover:bg-surface-hover text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              title="Next Page"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setPage(totalPages)}
+              disabled={safePage >= totalPages}
+              className="px-2 py-1 rounded-lg border border-border/80 hover:bg-surface-hover text-text-muted hover:text-white disabled:opacity-30 disabled:cursor-not-allowed text-[11px] transition-colors"
+              title="Last Page"
+            >
+              Last
+            </button>
+          </div>
+        </div>
+
         {error ? (
           <div className="flex-1 flex flex-col items-center justify-center p-12 text-center">
             <AlertCircle className="w-12 h-12 text-rose-400 mb-3" />
@@ -393,9 +490,9 @@ export default function Attendance() {
                       </td>
                     </tr>
                   ) : (
-                    filteredEmployees.map((emp, idx) => (
+                    displayedEmployees.map((emp, idx) => (
                       <tr key={emp.id} className="hover:bg-white/[0.02] transition-colors group">
-                        <td className="px-5 py-3.5 font-mono text-text-dim">{idx + 1}</td>
+                        <td className="px-5 py-3.5 font-mono text-text-dim">{startIndex + idx + 1}</td>
                         <td className="px-5 py-3.5">
                           {emp.photo_url ? (
                             <img src={emp.photo_url} alt="Profile" className="w-8 h-8 rounded-xl object-cover border border-border" />
@@ -492,9 +589,9 @@ export default function Attendance() {
                       </td>
                     </tr>
                   ) : (
-                    filteredRecords.map((rec, idx) => (
+                    displayedRecords.map((rec, idx) => (
                       <tr key={rec.id} className="hover:bg-white/[0.02] transition-colors group">
-                        <td className="px-5 py-3.5 font-mono text-text-dim">{idx + 1}</td>
+                        <td className="px-5 py-3.5 font-mono text-text-dim">{startIndex + idx + 1}</td>
                         <td className="px-5 py-3.5 font-mono text-cyan-400 font-semibold">{rec.employee_id}</td>
                         <td className="px-5 py-3.5 font-semibold text-text">{rec.employee_name}</td>
                         <td className="px-5 py-3.5 font-mono text-text-muted">{rec.attendance_date}</td>
@@ -515,6 +612,49 @@ export default function Attendance() {
             )}
           </div>
         )}
+
+        {/* Bottom Pagination Bar */}
+        <div className="p-3.5 border-t border-border/60 flex flex-wrap items-center justify-between gap-3 text-xs text-text-muted bg-[#050811]/80 font-mono">
+          <div>
+            PAGE <span className="font-bold text-white">{safePage}</span> OF <span className="font-bold text-white">{totalPages}</span> ({totalItems} TOTAL {activeTab === 'records' ? 'RECORDS' : 'PERSONNEL'})
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setPage(1)}
+              disabled={safePage <= 1}
+              className="px-2.5 py-1 rounded-lg border border-border/80 hover:bg-surface-hover text-white disabled:opacity-30 disabled:cursor-not-allowed text-[11px] transition-colors"
+            >
+              FIRST
+            </button>
+            <button
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={safePage <= 1}
+              className="p-1.5 rounded-lg border border-border/80 hover:bg-surface-hover text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              title="Previous Page"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <span className="font-semibold text-white px-2">
+              {safePage} / {totalPages}
+            </span>
+            <button
+              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+              disabled={safePage >= totalPages}
+              className="p-1.5 rounded-lg border border-border/80 hover:bg-surface-hover text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              title="Next Page"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setPage(totalPages)}
+              disabled={safePage >= totalPages}
+              className="px-2.5 py-1 rounded-lg border border-border/80 hover:bg-surface-hover text-white disabled:opacity-30 disabled:cursor-not-allowed text-[11px] transition-colors"
+            >
+              LAST
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Existing Preserved Modals */}
