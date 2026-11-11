@@ -81,9 +81,9 @@ export function FaceRecognitionModal({
     }
   }, [initialPunchMode, isOpen]);
 
-  // Camera Mode: 'hardware' (DirectShow OpenCV backend) or 'browser' (HTML5 WebRTC)
-  // Default to 'hardware' only on localhost (where physical webcam exists); on Cloud/EC2 default to 'browser'
-  const [cameraMode, setCameraMode] = useState<'hardware' | 'browser'>(isLocal ? 'hardware' : 'browser');
+  // Camera Mode: 'browser' (HTML5 WebRTC - recommended) or 'hardware' (Direct USB WebCam backend)
+  // Default to 'browser' so laptop webcam opens instantly without black screen
+  const [cameraMode, setCameraMode] = useState<'hardware' | 'browser'>('browser');
 
   const [activeEmployee, setActiveEmployee] = useState<RecognizedEmployee | null>(null);
   const [submittingAttendance, setSubmittingAttendance] = useState(false);
@@ -687,28 +687,28 @@ export function FaceRecognitionModal({
             {/* Mode Toggle: Direct Hardware vs Browser Webcam */}
             <div className="flex items-center bg-[#0a0f1d] p-1 rounded-xl border border-border text-xs">
               <button
+                onClick={() => setCameraMode('browser')}
+                className={`px-3 py-1 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  cameraMode === 'browser'
+                    ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-sm'
+                    : 'text-text-muted hover:text-white'
+                }`}
+                title="Use laptop / built-in webcam via browser WebRTC (Recommended)"
+              >
+                <Camera className="w-3.5 h-3.5 text-emerald-200" />
+                <span>Browser Cam (Recommended)</span>
+              </button>
+              <button
                 onClick={() => setCameraMode('hardware')}
-                className={`px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1 transition-all ${
+                className={`px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1 transition-all cursor-pointer ${
                   cameraMode === 'hardware'
                     ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-sm'
                     : 'text-text-muted hover:text-white'
                 }`}
-                title="DirectShow Native Hardware WebCam (Bypasses Browser Security Barriers)"
+                title="DirectShow Native Hardware WebCam (OpenCV backend)"
               >
                 <Cpu className="w-3 h-3 text-cyan-300" />
                 <span>Direct USB WebCam</span>
-              </button>
-              <button
-                onClick={() => setCameraMode('browser')}
-                className={`px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1 transition-all ${
-                  cameraMode === 'browser'
-                    ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-sm'
-                    : 'text-text-muted hover:text-white'
-                }`}
-                title="Browser WebRTC Media Stream"
-              >
-                <Camera className="w-3 h-3 text-cyan-300" />
-                <span>Browser Cam</span>
               </button>
             </div>
 
@@ -836,11 +836,25 @@ export function FaceRecognitionModal({
             </div>
           ) : cameraMode === 'hardware' ? (
             hardwareFrame ? (
-              <img 
-                src={hardwareFrame} 
-                alt="Hardware Live WebCam" 
-                className="absolute inset-0 w-full h-full object-cover" 
-              />
+              <div className="relative w-full h-full">
+                <img 
+                  src={hardwareFrame} 
+                  alt="Hardware Live WebCam" 
+                  className="absolute inset-0 w-full h-full object-cover" 
+                />
+                {/* 1-Click floating switch button to Browser Cam if screen is dark */}
+                <div className="absolute bottom-4 left-4 z-30">
+                  <button
+                    type="button"
+                    onClick={() => setCameraMode('browser')}
+                    className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold rounded-xl shadow-xl flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer border border-emerald-400/40"
+                    title="Camera black? Click here to switch to Laptop Browser Webcam"
+                  >
+                    <Camera className="w-4 h-4 text-emerald-200 animate-pulse" />
+                    <span>Camera Black? Click to Open Laptop Camera (Browser Cam)</span>
+                  </button>
+                </div>
+              </div>
             ) : (
               <div className="flex flex-col items-center gap-3 text-center p-6 bg-[#0c1427]/90 border border-cyan-500/20 rounded-2xl max-w-md z-20 m-4 shadow-xl">
                 {!isLocal ? (

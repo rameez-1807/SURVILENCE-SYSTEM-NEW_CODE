@@ -142,11 +142,36 @@ flowchart TD
 - **One-Click Label Correction**: Security officers can confirm or reclassify objects in real time (`PATCH /api/v1/events/{id}/correct-label`).
 - **Continuous Feedback**: Updated labels persist instantly to the database for model fine-tuning.
 
-### 5. 🪪 Biometric Facial Attendance (`/attendance`)
-- **Client-Side Neural Recognition**: High-accuracy facial feature vector extraction using Face-API.js.
-- **Employee Roster**: Register employee profiles with reference facial landmarks.
-- **Automated Check-in / Check-out**: Automatic logging of entry/exit timestamps with confidence metrics.
-- **Daily Analytics**: Aggregated attendance reports with search and department filtering.
+### 5. 🪪 Enterprise Biometric Facial Attendance & Facenox Platform (`/attendance`)
+- **Redesigned Enterprise SaaS Dashboard**: Clean modern light & dark interface with soft light-blue ambient canvas, fixed dark navy categorized sidebar, top header search, theme toggle, and notification alerts.
+- **Hero Welcome Card**: Features a friendly employee avatar illustration, greeting, and 4 high-visibility action buttons:
+  - 🟢 **Punch In (Live Face)**: Instant live face check-in with on-device biometric inference.
+  - 🔴 **Punch Out (Live Face)**: Instant exit time recording with automated shift completion.
+  - 🔵 **Sync HRMS**: Automated two-way synchronization with external HRMS and enterprise ERP systems.
+  - 🟣 **Register Employee**: Quick modal for enrolling new employee profiles and facial biometric templates.
+- **Dynamic Attendance Statistics**: 4 real-time metric cards computed directly from Hostinger Cloud MySQL (no mock data):
+  - 👥 **Total Employees**: Complete roster count.
+  - ✅ **Present Today**: Unique employees who punched in today with percentage indicator (`↑ X%`).
+  - ⏰ **Absent Today**: Remaining employees not yet checked in (`↓ Y%`).
+  - 📊 **Attendance Rate**: Healthy shift percentage with trend indicators.
+- **Facenox SOTA AI Biometric Platform**: Full-width active inference card running:
+  - **YuNet Multi-Angle Detector**: High-speed, rotation-invariant face landmark localization.
+  - **MiniFASNetV2 Anti-Spoofing Defense**: Real-time liveness analysis blocking printed photos, tablets, phone screens, and video replay attacks.
+  - **ArcFace 512-Dimensional Deep Embeddings**: Sub-second cosine similarity matching against registered employee templates.
+- **Individual Punch In & Punch Out Log Entries**:
+  - Each punch (Entry and Exit) is rendered as its own distinct record row with dedicated 🟢 `PUNCH IN` / 🔴 `PUNCH OUT` badges, recorded timestamp, camera source, confidence percentage, and shift status.
+- **6 Sub-View Filter Tabs**:
+  - `📅 Attendance Log`: Full chronological attendance stream.
+  - `👥 Personnel Directory`: Employee roster with enrollment status and re-enroll/delete biometric actions.
+  - `⚡ All Punches`: Separate event rows for every entry and exit.
+  - `▶ Punch In Logs`: Filtered view showing only entry punches.
+  - `🚪 Punch Out Logs`: Filtered view showing only exit punches.
+  - `📊 Daily Combined`: Aggregated daily overview with entry and exit side by side.
+- **Unified Search & Filter Toolbar**: Search by employee name or ID, filter by date (`dd-mm-yyyy`), sector location, and attendance status.
+- **Dual Camera Mode**:
+  - 📷 **Browser Cam (Default & Recommended)**: Native HTML5 WebRTC webcam access directly in Chrome for zero-latency, high-FPS laptop & mobile streaming.
+  - 🔌 **Direct USB WebCam**: Native OpenCV DirectShow acquisition for fixed CCTV & desktop hardware setups.
+- **1-Click Quick Punch Out**: Interactive action button on active punch-in records allowing security officers to log punch-outs with a single tap.
 
 ### 6. 🎨 Premium UI Design System & Theming
 - **Dual Theme Support**: Comprehensive Dark / Light mode with persistent state via `ThemeContext`.
@@ -220,6 +245,20 @@ flowchart TD
 | `PATCH` | `/api/v1/events/{id}/correct-label` | Submit human correction for an event label |
 | `DELETE`| `/api/v1/events/clear-all` | Purge all stored security events |
 | `WS` | `/api/v1/ws` | Bi-directional WebSocket stream for real-time notifications |
+
+### 🪪 Biometric Attendance & Facenox Platform
+| Method | Endpoint | Description |
+|:---|:---|:---|
+| `GET` | `/api/v1/attendance` | List attendance records with date, employee, and search filters |
+| `POST` | `/api/v1/attendance` | Create a manual biometric attendance record |
+| `POST` | `/api/v1/attendance/punch` | 1-Click Punch In or Punch Out with timestamp & status logging |
+| `POST` | `/api/v1/attendance/facenox-scan` | Real-time face matching with YuNet + ArcFace 512d + MiniFASNetV2 anti-spoofing |
+| `POST` | `/api/v1/attendance/hardware-webcam/scan` | Native DirectShow hardware webcam acquisition |
+| `GET` | `/api/v1/attendance/hardware-webcam/capture` | Capture single frame from USB camera for enrollment |
+| `POST` | `/api/v1/attendance/sync-hrms` | Two-way synchronization with external HRMS attendance systems |
+| `GET` | `/api/v1/employees` | List registered employee roster with biometric status |
+| `POST` | `/api/v1/employees/register` | Register new employee profile with face biometric vector |
+| `DELETE`| `/api/v1/employees/{id}/face` | Remove facial biometric embeddings while preserving profile |
 
 ---
 

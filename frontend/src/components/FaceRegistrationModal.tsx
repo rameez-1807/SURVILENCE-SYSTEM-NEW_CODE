@@ -54,9 +54,9 @@ export function FaceRegistrationModal({
   const isSecure = typeof window !== 'undefined' && 
     (window.isSecureContext || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
-  // Camera Mode: 'hardware' (DirectShow OpenCV backend) or 'browser' (HTML5 WebRTC)
-  // On cloud / EC2, always default to 'browser' since cloud servers have no physical USB webcam attached
-  const [cameraMode, setCameraMode] = useState<'hardware' | 'browser'>(isLocal ? 'hardware' : 'browser');
+  // Camera Mode: 'browser' (HTML5 WebRTC - recommended) or 'hardware' (DirectShow OpenCV backend)
+  // Default to 'browser' so laptop webcam opens instantly
+  const [cameraMode, setCameraMode] = useState<'hardware' | 'browser'>('browser');
 
   // Form fields
   const [name, setName] = useState('');
