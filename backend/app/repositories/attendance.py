@@ -92,6 +92,29 @@ class AttendanceRepository:
 
         return record
 
+    async def update_first_seen(self, record: AttendanceRecord, new_first_seen: any, confidence: float) -> AttendanceRecord:
+        """Update first_seen timestamp (Punch In) on existing attendance record."""
+        record.first_seen = new_first_seen
+        if confidence > record.confidence:
+            record.confidence = confidence
+        await self.db.commit()
+        await self.db.refresh(record)
+
+        try:
+            from app.db.mongodb import get_async_db
+            mongo_db = get_async_db()
+            await mongo_db.attendance_records.update_one(
+                {"_id": str(record.id)},
+                {"$set": {
+                    "first_seen": str(record.first_seen) if record.first_seen else None,
+                    "confidence": record.confidence,
+                }}
+            )
+        except Exception:
+            pass
+
+        return record
+
     async def get_by_id(self, record_id: uuid.UUID) -> Optional[AttendanceRecord]:
         """Get a single attendance record by its UUID, with employee loaded."""
         stmt = (

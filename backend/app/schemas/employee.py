@@ -63,6 +63,7 @@ class FacenoxFrameScanRequest(BaseModel):
     auto_mark_attendance: bool = Field(True, description="Automatically mark attendance in DB if verified")
     enable_liveness: bool = Field(True, description="Run anti-spoofing liveness check")
     camera_name: str = Field("Facenox AI Scanner", description="Source camera identifier")
+    punch_type: Optional[str] = Field("in", description="Punch type: 'in' (Punch In / Entry) or 'out' (Punch Out / Exit)")
 
 class FacenoxEnrollRequest(BaseModel):
     employee_id: str = Field(..., description="ID of employee to enroll face for")

@@ -5,16 +5,16 @@ import {
   RefreshCw, 
   ShieldCheck, 
   CameraOff, 
-  Check, 
   Zap,
-  Info,
   Upload,
   Camera,
   Cpu,
   UserCheck,
   Loader2,
   Lock,
-  ShieldAlert
+  ShieldAlert,
+  LogIn,
+  LogOut
 } from 'lucide-react';
 import { api } from '../lib/api';
 
@@ -22,6 +22,7 @@ interface FaceRecognitionModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  initialPunchMode?: 'in' | 'out';
 }
 
 interface RecognizedEmployee {
@@ -37,6 +38,7 @@ interface AttendanceNotice {
   employee_id: string;
   check_in: string;
   status: 'Marked' | 'Already Marked';
+  punch_type?: 'in' | 'out';
 }
 
 interface FacenoxFaceResult {
@@ -58,12 +60,26 @@ interface FacenoxFaceResult {
   attendance_message?: string;
 }
 
-export function FaceRecognitionModal({ isOpen, onClose, onSuccess }: FaceRecognitionModalProps) {
+export function FaceRecognitionModal({ 
+  isOpen, 
+  onClose, 
+  onSuccess,
+  initialPunchMode = 'in'
+}: FaceRecognitionModalProps) {
   const isLocal = typeof window !== 'undefined' && 
     (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
   const isSecure = typeof window !== 'undefined' && 
     (window.isSecureContext || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+  // Punch Mode: 'in' (Check-in/Entry) or 'out' (Check-out/Exit)
+  const [punchMode, setPunchMode] = useState<'in' | 'out'>(initialPunchMode);
+
+  useEffect(() => {
+    if (initialPunchMode) {
+      setPunchMode(initialPunchMode);
+    }
+  }, [initialPunchMode, isOpen]);
 
   // Camera Mode: 'hardware' (DirectShow OpenCV backend) or 'browser' (HTML5 WebRTC)
   // Default to 'hardware' only on localhost (where physical webcam exists); on Cloud/EC2 default to 'browser'
@@ -150,6 +166,7 @@ export function FaceRecognitionModal({ isOpen, onClose, onSuccess }: FaceRecogni
             employee_id: firstFace.employee.employee_id,
             check_in: firstFace.attendance_time || timestamp || 'Now',
             status: 'Marked',
+            punch_type: punchMode,
           });
           onSuccess?.();
         } else if (firstFace.attendance_already_marked) {
@@ -158,6 +175,7 @@ export function FaceRecognitionModal({ isOpen, onClose, onSuccess }: FaceRecogni
             employee_id: firstFace.employee.employee_id,
             check_in: firstFace.attendance_time || 'Earlier today',
             status: 'Already Marked',
+            punch_type: punchMode,
           });
           onSuccess?.();
         }
@@ -309,22 +327,22 @@ export function FaceRecognitionModal({ isOpen, onClose, onSuccess }: FaceRecogni
     return stopCamera;
   }, [isOpen, cameraMode, startBrowserCamera, pollHardwareCamera, stopCamera]);
 
-  // Submit attendance manually to DB and update table history
-  const handleManualSubmitAttendance = async (emp?: RecognizedEmployee | null) => {
+  // Submit attendance manually to DB and update table history (Punch In or Punch Out)
+  const handleManualSubmitAttendance = async (emp?: RecognizedEmployee | null, explicitPunch?: 'in' | 'out') => {
     const target = emp || activeEmployee;
     if (!target) return;
+    const mode = explicitPunch || punchMode;
     try {
       setSubmittingAttendance(true);
       const now = new Date();
       const today = now.toISOString().split('T')[0];
-      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
       
-      await api.post('/attendance', {
+      await api.post('/attendance/punch', {
         employee_id: target.employee_id,
         employee_name: target.name,
+        punch_type: mode,
         attendance_date: today,
-        first_seen: timeStr,
-        last_seen: timeStr,
         camera_name: 'Facenox Live Scanner',
         confidence: 100.0,
       });
@@ -334,9 +352,10 @@ export function FaceRecognitionModal({ isOpen, onClose, onSuccess }: FaceRecogni
         employee_id: target.employee_id,
         check_in: timeStr,
         status: 'Marked',
+        punch_type: mode,
       });
-      setStatusLabel('Recorded');
-      setStatusMessage(`Attendance saved for ${target.name}`);
+      setStatusLabel(mode === 'out' ? 'Punched Out' : 'Punched In');
+      setStatusMessage(`${mode === 'out' ? 'Punch Out' : 'Punch In'} recorded for ${target.name}`);
       setStatusType('success');
       onSuccess?.();
     } catch (err: any) {
@@ -370,6 +389,7 @@ export function FaceRecognitionModal({ isOpen, onClose, onSuccess }: FaceRecogni
         auto_mark_attendance: true,
         enable_liveness: true,
         camera_name: 'Terminal-Gate-1',
+        punch_type: punchMode,
       });
       if (res.data?.success) {
         setApiError(null);
@@ -633,7 +653,37 @@ export function FaceRecognitionModal({ isOpen, onClose, onSuccess }: FaceRecogni
             </div>
           </div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            {/* Punch Mode Selector: Punch In vs Punch Out */}
+            <div className="flex items-center bg-[#0a0f1d] p-1 rounded-xl border border-border text-xs shadow-inner">
+              <button
+                type="button"
+                onClick={() => setPunchMode('in')}
+                className={`px-3 py-1 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  punchMode === 'in'
+                    ? 'bg-gradient-to-r from-emerald-600 to-teal-500 text-white shadow-md shadow-emerald-500/25 ring-1 ring-emerald-400/50'
+                    : 'text-text-muted hover:text-white'
+                }`}
+                title="Punch In Mode: Auto-record entry time"
+              >
+                <LogIn className="w-3.5 h-3.5 text-emerald-300" />
+                <span>Punch In</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPunchMode('out')}
+                className={`px-3 py-1 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  punchMode === 'out'
+                    ? 'bg-gradient-to-r from-rose-600 to-amber-600 text-white shadow-md shadow-rose-500/25 ring-1 ring-rose-400/50'
+                    : 'text-text-muted hover:text-white'
+                }`}
+                title="Punch Out Mode: Auto-record exit time"
+              >
+                <LogOut className="w-3.5 h-3.5 text-rose-300" />
+                <span>Punch Out</span>
+              </button>
+            </div>
+
             {/* Mode Toggle: Direct Hardware vs Browser Webcam */}
             <div className="flex items-center bg-[#0a0f1d] p-1 rounded-xl border border-border text-xs">
               <button
@@ -860,25 +910,27 @@ export function FaceRecognitionModal({ isOpen, onClose, onSuccess }: FaceRecogni
           {/* Bottom Attendance Confirmation Toast Card */}
           {lastAttendanceNotice && (
             <div className={`absolute bottom-4 left-4 right-4 backdrop-blur-md text-white p-3.5 rounded-xl flex items-center justify-between z-30 shadow-2xl animate-in fade-in slide-in-from-bottom-2 duration-200 border ${
-              lastAttendanceNotice.status === 'Marked' 
-                ? 'bg-emerald-950/95 border-emerald-500/50' 
-                : 'bg-cyan-950/95 border-cyan-500/50'
+              lastAttendanceNotice.punch_type === 'out'
+                ? 'bg-rose-950/95 border-rose-500/50' 
+                : 'bg-emerald-950/95 border-emerald-500/50'
             }`}>
               <div className="flex items-center gap-3">
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 border ${
-                  lastAttendanceNotice.status === 'Marked'
-                    ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400'
-                    : 'bg-cyan-500/20 border-cyan-500/40 text-cyan-400'
+                  lastAttendanceNotice.punch_type === 'out'
+                    ? 'bg-rose-500/20 border-rose-500/40 text-rose-400'
+                    : 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400'
                 }`}>
-                  {lastAttendanceNotice.status === 'Marked' ? <Check className="w-5 h-5" /> : <Info className="w-5 h-5" />}
+                  {lastAttendanceNotice.punch_type === 'out' ? <LogOut className="w-5 h-5" /> : <LogIn className="w-5 h-5" />}
                 </div>
                 <div>
                   <div className={`flex items-center gap-2 font-bold text-xs uppercase tracking-wider ${
-                    lastAttendanceNotice.status === 'Marked' ? 'text-emerald-400' : 'text-cyan-300'
+                    lastAttendanceNotice.punch_type === 'out' ? 'text-rose-400' : 'text-emerald-400'
                   }`}>
-                    {lastAttendanceNotice.status === 'Marked' 
-                      ? '✓ Attendance Marked Successfully' 
-                      : 'Attendance Already Marked'}
+                    {lastAttendanceNotice.punch_type === 'out'
+                      ? '✓ Punch Out Recorded'
+                      : lastAttendanceNotice.status === 'Marked'
+                        ? '✓ Punch In Recorded'
+                        : 'Already Punched In'}
                   </div>
                   <div className="text-sm font-semibold text-white">
                     {lastAttendanceNotice.name} <span className="font-mono text-cyan-300 font-normal">({lastAttendanceNotice.employee_id})</span>
@@ -886,7 +938,9 @@ export function FaceRecognitionModal({ isOpen, onClose, onSuccess }: FaceRecogni
                 </div>
               </div>
               <div className="text-right border-l border-white/10 pl-4">
-                <div className="text-[10px] text-white/60 uppercase font-medium">Recorded Time</div>
+                <div className="text-[10px] text-white/60 uppercase font-medium">
+                  {lastAttendanceNotice.punch_type === 'out' ? 'Punch Out Time' : 'Punch In Time'}
+                </div>
                 <div className="text-xs font-mono font-bold text-cyan-300">{lastAttendanceNotice.check_in}</div>
               </div>
             </div>
@@ -905,19 +959,34 @@ export function FaceRecognitionModal({ isOpen, onClose, onSuccess }: FaceRecogni
                   {activeEmployee.name} <span className="text-cyan-300 font-mono font-bold">({activeEmployee.employee_id})</span>
                 </span>
                 <span className="text-[11px] text-emerald-300">
-                  Face recognized! Click Submit to save attendance in database & history log.
+                  Face recognized! Click Punch In or Punch Out to record in database.
                 </span>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => handleManualSubmitAttendance(activeEmployee)}
-              disabled={submittingAttendance}
-              className="px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 cursor-pointer whitespace-nowrap transition-all"
-            >
-              {submittingAttendance ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-              <span>Submit Attendance</span>
-            </button>
+            
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleManualSubmitAttendance(activeEmployee, 'in')}
+                disabled={submittingAttendance}
+                className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-1.5 cursor-pointer whitespace-nowrap transition-all active:scale-95"
+                title="Record Punch In (Entry Time)"
+              >
+                {submittingAttendance ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogIn className="w-3.5 h-3.5" />}
+                <span>Punch In</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleManualSubmitAttendance(activeEmployee, 'out')}
+                disabled={submittingAttendance}
+                className="px-4 py-2 bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-lg shadow-rose-600/30 flex items-center gap-1.5 cursor-pointer whitespace-nowrap transition-all active:scale-95"
+                title="Record Punch Out (Exit Time)"
+              >
+                {submittingAttendance ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogOut className="w-3.5 h-3.5" />}
+                <span>Punch Out</span>
+              </button>
+            </div>
           </div>
         )}
 

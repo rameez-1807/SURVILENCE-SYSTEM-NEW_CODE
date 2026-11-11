@@ -16,7 +16,9 @@ import {
   Trash2,
   UserPlus,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  LogIn,
+  LogOut
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { PageHeader } from '../components/ui/PageHeader';
@@ -49,11 +51,27 @@ export default function Attendance() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   
-  // Registration Modal State
+  // Registration & Recognition Modal State
   const [isRegistrationModalOpen, setIsRegistrationModalOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<any | null>(null);
   const [isManualRegistrationOpen, setIsManualRegistrationOpen] = useState(false);
   const [isRecognitionModalOpen, setIsRecognitionModalOpen] = useState(false);
+  const [recognitionPunchMode, setRecognitionPunchMode] = useState<'in' | 'out'>('in');
+
+  // Quick 1-Click Punch Out Handler for table rows
+  const handleQuickPunchOut = async (rec: any) => {
+    try {
+      await api.post('/attendance/punch', {
+        employee_id: rec.employee_id,
+        employee_name: rec.employee_name,
+        punch_type: 'out',
+        attendance_date: rec.attendance_date,
+      });
+      await fetchData();
+    } catch (err: any) {
+      alert('Failed to record punch out: ' + (err.response?.data?.detail || err.message));
+    }
+  };
 
   // Reset pagination to page 1 whenever filters or tab or pageSize change
   useEffect(() => {
@@ -166,13 +184,31 @@ export default function Attendance() {
         }
       >
         {activeTab === 'records' && (
-          <button 
-            onClick={() => setIsRecognitionModalOpen(true)}
-            className="inline-flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-cyan-500/25 transition-all"
-          >
-            <Zap className="w-3.5 h-3.5 text-cyan-300 animate-pulse" />
-            <span>⚡ Facenox Live Attendance</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => {
+                setRecognitionPunchMode('in');
+                setIsRecognitionModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-400 text-white rounded-xl text-xs font-bold shadow-lg shadow-emerald-500/25 transition-all active:scale-95 cursor-pointer"
+              title="Open Live Camera in Punch In Mode"
+            >
+              <LogIn className="w-3.5 h-3.5 text-emerald-200" />
+              <span>Punch In (Live Face)</span>
+            </button>
+
+            <button 
+              onClick={() => {
+                setRecognitionPunchMode('out');
+                setIsRecognitionModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-rose-600 via-red-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-rose-500/25 transition-all active:scale-95 cursor-pointer"
+              title="Open Live Camera in Punch Out Mode"
+            >
+              <LogOut className="w-3.5 h-3.5 text-rose-200" />
+              <span>Punch Out (Live Face)</span>
+            </button>
+          </div>
         )}
 
         {activeTab === 'employees' && (
@@ -564,17 +600,18 @@ export default function Attendance() {
                     <th className="px-5 py-3.5">Employee ID</th>
                     <th className="px-5 py-3.5">Subject Name</th>
                     <th className="px-5 py-3.5">Date</th>
-                    <th className="px-5 py-3.5">Entry (First Seen)</th>
-                    <th className="px-5 py-3.5">Exit (Last Seen)</th>
+                    <th className="px-5 py-3.5">Punch In (Entry)</th>
+                    <th className="px-5 py-3.5">Punch Out (Exit)</th>
                     <th className="px-5 py-3.5">Camera Source</th>
                     <th className="px-5 py-3.5">Confidence</th>
                     <th className="px-5 py-3.5">Status</th>
+                    <th className="px-5 py-3.5 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/40">
                   {filteredRecords.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-6 py-16 text-center">
+                      <td colSpan={10} className="px-6 py-16 text-center">
                         <EmptyState
                           icon={CalendarClock}
                           title="No attendance records found"
@@ -589,23 +626,51 @@ export default function Attendance() {
                       </td>
                     </tr>
                   ) : (
-                    displayedRecords.map((rec, idx) => (
-                      <tr key={rec.id} className="hover:bg-white/[0.02] transition-colors group">
-                        <td className="px-5 py-3.5 font-mono text-text-dim">{startIndex + idx + 1}</td>
-                        <td className="px-5 py-3.5 font-mono text-cyan-400 font-semibold">{rec.employee_id}</td>
-                        <td className="px-5 py-3.5 font-semibold text-text">{rec.employee_name}</td>
-                        <td className="px-5 py-3.5 font-mono text-text-muted">{rec.attendance_date}</td>
-                        <td className="px-5 py-3.5 font-mono text-emerald-400 font-semibold">{rec.first_seen || '09:02 AM'}</td>
-                        <td className="px-5 py-3.5 font-mono text-text-muted">{rec.last_seen || '05:30 PM'}</td>
-                        <td className="px-5 py-3.5 text-text-muted">{rec.camera_name || 'Gate-1-Face'}</td>
-                        <td className="px-5 py-3.5 font-mono text-cyan-400 font-bold">{rec.confidence || 98}%</td>
-                        <td className="px-5 py-3.5">
-                          <Badge variant="success" size="xs" dot>
-                            PRESENT
-                          </Badge>
-                        </td>
-                      </tr>
-                    ))
+                    displayedRecords.map((rec, idx) => {
+                      const isPunchedOut = Boolean(rec.last_seen && rec.last_seen !== rec.first_seen);
+                      return (
+                        <tr key={rec.id} className="hover:bg-white/[0.02] transition-colors group">
+                          <td className="px-5 py-3.5 font-mono text-text-dim">{startIndex + idx + 1}</td>
+                          <td className="px-5 py-3.5 font-mono text-cyan-400 font-semibold">{rec.employee_id}</td>
+                          <td className="px-5 py-3.5 font-semibold text-text">{rec.employee_name}</td>
+                          <td className="px-5 py-3.5 font-mono text-text-muted">{rec.attendance_date}</td>
+                          <td className="px-5 py-3.5 font-mono text-emerald-400 font-semibold">
+                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1.5"></span>
+                            {rec.first_seen || '--:--'}
+                          </td>
+                          <td className="px-5 py-3.5 font-mono">
+                            {isPunchedOut ? (
+                              <span className="text-cyan-300 font-semibold">
+                                <span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan-400 mr-1.5"></span>
+                                {rec.last_seen}
+                              </span>
+                            ) : (
+                              <span className="text-text-muted/50 italic text-[11px]">Pending Exit</span>
+                            )}
+                          </td>
+                          <td className="px-5 py-3.5 text-text-muted">{rec.camera_name || 'Terminal-Gate-1'}</td>
+                          <td className="px-5 py-3.5 font-mono text-cyan-400 font-bold">{rec.confidence || 98}%</td>
+                          <td className="px-5 py-3.5">
+                            <Badge variant={isPunchedOut ? 'cyan' : 'success'} size="xs" dot>
+                              {isPunchedOut ? 'PUNCHED OUT' : 'PUNCHED IN'}
+                            </Badge>
+                          </td>
+                          <td className="px-5 py-3.5 text-right">
+                            {!isPunchedOut && (
+                              <button
+                                type="button"
+                                onClick={() => handleQuickPunchOut(rec)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 rounded-lg text-[11px] font-semibold transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                                title="Click to record Punch Out (Exit) now"
+                              >
+                                <LogOut className="w-3 h-3" />
+                                <span>Punch Out</span>
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -685,6 +750,7 @@ export default function Attendance() {
         onSuccess={() => {
           fetchData();
         }}
+        initialPunchMode={recognitionPunchMode}
       />
     </div>
   );

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Check, Loader2, Camera, UserCheck, ShieldCheck, UserPlus, CalendarClock, AlertTriangle, Upload } from 'lucide-react';
+import { X, Check, Loader2, Camera, UserCheck, ShieldCheck, UserPlus, CalendarClock, AlertTriangle, Upload, LogIn, LogOut } from 'lucide-react';
 import * as faceapi from 'face-api.js';
 import { api } from '../lib/api';
 
@@ -23,13 +23,17 @@ export function ManualRegistrationModal({ isOpen, onClose, onSuccess, type: init
   const [empId, setEmpId] = useState('');
   const [name, setName] = useState('');
   
-  // Specific to records
+  // Specific to records (Punch In / Punch Out)
+  const [punchType, setPunchType] = useState<'in' | 'out'>('in');
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [checkIn, setCheckIn] = useState(() => {
     const d = new Date();
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   });
-  const [checkOut, setCheckOut] = useState('');
+  const [checkOut, setCheckOut] = useState(() => {
+    const d = new Date();
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  });
 
   // Specific to employees
   const [department, setDepartment] = useState('');
@@ -311,19 +315,19 @@ export function ManualRegistrationModal({ isOpen, onClose, onSuccess, type: init
         }, 1200);
 
       } else {
-        // Mode 2: Save Attendance Record (Auto-registers employee if not existing)
-        await api.post('/attendance', {
+        // Mode 2: Save Attendance Record (Punch In or Punch Out)
+        const punchTime = punchType === 'out' ? (checkOut || checkIn || '18:00') : (checkIn || '09:00');
+        await api.post('/attendance/punch', {
           employee_id: empId.trim(),
           employee_name: name.trim(),
-          face_image: finalFaceImage || undefined,
+          punch_type: punchType,
           attendance_date: date || new Date().toISOString().split('T')[0],
-          first_seen: checkIn || '09:00',
-          last_seen: checkOut || checkIn || '09:00',
+          punch_time: punchTime,
           camera_name: 'Manual Face Entry',
           confidence: 100.0,
         });
 
-        setSuccessNotice(`Attendance recorded successfully for ${name.trim()} (${empId.trim()})!`);
+        setSuccessNotice(`${punchType === 'out' ? 'Punch Out (Exit)' : 'Punch In (Entry)'} recorded successfully for ${name.trim()} (${empId.trim()})!`);
         setTimeout(() => {
           onSuccess();
           onClose();
@@ -528,34 +532,59 @@ export function ManualRegistrationModal({ isOpen, onClose, onSuccess, type: init
             </div>
             
             {modalMode === 'records' && (
-              <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-3">
+                {/* Punch Type Selector */}
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-text-muted">Date *</label>
-                  <input 
-                    type="date" 
-                    value={date}
-                    onChange={e => setDate(e.target.value)}
-                    className="w-full bg-[#0a0f1d] border border-border/80 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-500 text-white font-mono"
-                  />
+                  <label className="text-xs font-semibold text-text-muted">Punch Action *</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPunchType('in')}
+                      className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                        punchType === 'in'
+                          ? 'bg-gradient-to-r from-emerald-600 to-teal-500 text-white shadow-md shadow-emerald-500/25 ring-1 ring-emerald-400'
+                          : 'bg-[#0a0f1d] border border-border/80 text-text-muted hover:text-white'
+                      }`}
+                    >
+                      <LogIn className="w-3.5 h-3.5 text-emerald-300" />
+                      <span>Punch In (Entry)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPunchType('out')}
+                      className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                        punchType === 'out'
+                          ? 'bg-gradient-to-r from-rose-600 to-amber-600 text-white shadow-md shadow-rose-500/25 ring-1 ring-rose-400'
+                          : 'bg-[#0a0f1d] border border-border/80 text-text-muted hover:text-white'
+                      }`}
+                    >
+                      <LogOut className="w-3.5 h-3.5 text-rose-300" />
+                      <span>Punch Out (Exit)</span>
+                    </button>
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-text-muted">Check-In Time *</label>
-                  <input 
-                    type="time" 
-                    value={checkIn}
-                    onChange={e => setCheckIn(e.target.value)}
-                    className="w-full bg-[#0a0f1d] border border-border/80 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-500 text-white font-mono"
-                  />
-                </div>
-                <div className="space-y-1 col-span-2">
-                  <label className="text-xs font-semibold text-text-muted">Check-Out Time (Optional)</label>
-                  <input 
-                    type="time" 
-                    value={checkOut}
-                    onChange={e => setCheckOut(e.target.value)}
-                    placeholder="Optional"
-                    className="w-full bg-[#0a0f1d] border border-border/80 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-500 text-white font-mono"
-                  />
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-text-muted">Date *</label>
+                    <input 
+                      type="date" 
+                      value={date}
+                      onChange={e => setDate(e.target.value)}
+                      className="w-full bg-[#0a0f1d] border border-border/80 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-500 text-white font-mono"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-text-muted">
+                      {punchType === 'out' ? 'Punch Out Time *' : 'Punch In Time *'}
+                    </label>
+                    <input 
+                      type="time" 
+                      value={punchType === 'out' ? checkOut : checkIn}
+                      onChange={e => punchType === 'out' ? setCheckOut(e.target.value) : setCheckIn(e.target.value)}
+                      className="w-full bg-[#0a0f1d] border border-border/80 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-500 text-white font-mono"
+                    />
+                  </div>
                 </div>
               </div>
             )}

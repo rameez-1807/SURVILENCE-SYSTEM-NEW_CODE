@@ -21,6 +21,7 @@ from app.schemas.attendance import (
     AttendanceListResponse,
     AttendanceRecordCreate,
     AttendanceRecordResponse,
+    AttendancePunchRequest,
 )
 from app.schemas.employee import FacenoxFrameScanRequest
 from app.services.attendance import AttendanceService
@@ -73,6 +74,28 @@ async def create_attendance_record(
     """
     service = AttendanceService(db)
     return await service.create_record(record_in)
+
+
+@router.post("/punch", response_model=AttendanceRecordResponse)
+async def punch_attendance(
+    punch_in: AttendancePunchRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Direct 1-Click Punch In or Punch Out endpoint.
+    - punch_type='in': Records or updates entry time (first_seen)
+    - punch_type='out': Records or updates exit time (last_seen)
+    """
+    service = AttendanceService(db)
+    return await service.punch_record(
+        employee_id=punch_in.employee_id,
+        punch_type=punch_in.punch_type,
+        camera_name=punch_in.camera_name or "Facenox Scanner",
+        confidence=punch_in.confidence or 100.0,
+        punch_date=punch_in.attendance_date,
+        punch_time=punch_in.punch_time,
+        employee_name=punch_in.employee_name,
+    )
 
 
 @router.post("/facenox-scan")
@@ -176,59 +199,122 @@ async def scan_frame_facenox(
             # Cooldown check for repeated frames
             last_marked = _facenox_cooldown.get(emp_id, 0.0)
             in_cooldown = (time.time() - last_marked) < COOLDOWN_SECONDS
+            ptype = (getattr(payload, "punch_type", None) or "in").strip().lower()
 
-            if existing_record:
-                # Employee has already checked in today!
-                face["attendance_already_marked"] = True
-                first_seen_str = existing_record.first_seen.strftime("%H:%M:%S") if existing_record.first_seen else current_time_str
-                face["attendance_time"] = first_seen_str
-                face["attendance_message"] = f"Attendance Already Marked (Check-in at {first_seen_str})"
-
-                if not in_cooldown and payload.auto_mark_attendance:
-                    try:
-                        # Update last_seen on existing record
-                        await att_repo.update_last_seen(
-                            existing_record,
-                            current_time,
-                            int(face.get("confidence", 0.95) * 100)
-                        )
-                        _facenox_cooldown[emp_id] = time.time()
-                    except Exception as err:
-                        logger.warning("Failed to update last_seen for %s: %s", emp_id, err)
-
-                if in_cooldown:
-                    face["attendance_cooldown"] = True
-            else:
-                # First check-in of the day!
-                if payload.auto_mark_attendance and not in_cooldown:
-                    try:
-                        import uuid as _uuid
-                        rec = await att_repo.create(
-                            AttendanceRecordCreate(
-                                employee_id=emp_id,
-                                attendance_date=today_date,
-                                first_seen=current_time,
-                                last_seen=current_time,
-                                camera_name=payload.camera_name,
-                                confidence=int(face.get("confidence", 0.95) * 100),
-                            ),
-                            employee_uuid=_uuid.UUID(str(emp_uuid))
-                        )
-                        _facenox_cooldown[emp_id] = time.time()
-                        face["attendance_marked"] = True
+            if ptype == "out":
+                # PUNCH OUT MODE (Exit / Check-out)
+                face["punch_type"] = "out"
+                if existing_record:
+                    if not in_cooldown and payload.auto_mark_attendance:
+                        try:
+                            await att_repo.update_last_seen(
+                                existing_record,
+                                current_time,
+                                int(face.get("confidence", 0.95) * 100)
+                            )
+                            _facenox_cooldown[emp_id] = time.time()
+                            face["attendance_marked"] = True
+                            face["attendance_time"] = current_time_str
+                            face["attendance_message"] = f"Punch Out Recorded Successfully ({current_time_str})"
+                            attendance_events.append({
+                                "employee_id": emp_id,
+                                "name": emp_info["name"],
+                                "time": current_time_str,
+                                "status": "Punched Out",
+                                "confidence": face.get("confidence"),
+                            })
+                            logger.info("Facenox Punch-Out Recorded: %s at %s IST", emp_info["name"], current_time_str)
+                        except Exception as err:
+                            logger.warning("Failed to update punch-out for %s: %s", emp_id, err)
+                    if in_cooldown:
+                        face["attendance_cooldown"] = True
                         face["attendance_time"] = current_time_str
-                        face["attendance_message"] = f"Attendance Marked Successfully ({current_time_str})"
+                        face["attendance_message"] = f"Punch Out Already Recorded ({current_time_str})"
+                else:
+                    # No prior record today, create with punch out time
+                    if not in_cooldown and payload.auto_mark_attendance:
+                        try:
+                            import uuid as _uuid
+                            await att_repo.create(
+                                AttendanceRecordCreate(
+                                    employee_id=emp_id,
+                                    attendance_date=today_date,
+                                    first_seen=current_time,
+                                    last_seen=current_time,
+                                    camera_name=payload.camera_name,
+                                    confidence=int(face.get("confidence", 0.95) * 100),
+                                    punch_type="out",
+                                ),
+                                employee_uuid=_uuid.UUID(str(emp_uuid))
+                            )
+                            _facenox_cooldown[emp_id] = time.time()
+                            face["attendance_marked"] = True
+                            face["attendance_time"] = current_time_str
+                            face["attendance_message"] = f"Punch Out Recorded Successfully ({current_time_str})"
+                            attendance_events.append({
+                                "employee_id": emp_id,
+                                "name": emp_info["name"],
+                                "time": current_time_str,
+                                "status": "Punched Out",
+                                "confidence": face.get("confidence"),
+                            })
+                        except Exception as err:
+                            logger.warning("Failed to create punch-out for %s: %s", emp_id, err)
+            else:
+                # PUNCH IN MODE (Entry / Check-in)
+                face["punch_type"] = "in"
+                if existing_record:
+                    face["attendance_already_marked"] = True
+                    first_seen_str = existing_record.first_seen.strftime("%H:%M:%S") if existing_record.first_seen else current_time_str
+                    face["attendance_time"] = first_seen_str
+                    face["attendance_message"] = f"Already Punched In at {first_seen_str}"
 
-                        attendance_events.append({
-                            "employee_id": emp_id,
-                            "name": emp_info["name"],
-                            "time": current_time_str,
-                            "status": "Checked In",
-                            "confidence": face.get("confidence"),
-                        })
-                        logger.info("Facenox Attendance Auto-Marked: %s at %s IST", emp_info["name"], current_time_str)
-                    except Exception as exc:
-                        logger.warning("Facenox attendance auto-mark error for %s: %s", emp_id, exc)
+                    if not in_cooldown and payload.auto_mark_attendance:
+                        try:
+                            # Update last_seen on existing record
+                            await att_repo.update_last_seen(
+                                existing_record,
+                                current_time,
+                                int(face.get("confidence", 0.95) * 100)
+                            )
+                            _facenox_cooldown[emp_id] = time.time()
+                        except Exception as err:
+                            logger.warning("Failed to update last_seen for %s: %s", emp_id, err)
+
+                    if in_cooldown:
+                        face["attendance_cooldown"] = True
+                else:
+                    # First check-in of the day!
+                    if payload.auto_mark_attendance and not in_cooldown:
+                        try:
+                            import uuid as _uuid
+                            rec = await att_repo.create(
+                                AttendanceRecordCreate(
+                                    employee_id=emp_id,
+                                    attendance_date=today_date,
+                                    first_seen=current_time,
+                                    last_seen=current_time,
+                                    camera_name=payload.camera_name,
+                                    confidence=int(face.get("confidence", 0.95) * 100),
+                                    punch_type="in",
+                                ),
+                                employee_uuid=_uuid.UUID(str(emp_uuid))
+                            )
+                            _facenox_cooldown[emp_id] = time.time()
+                            face["attendance_marked"] = True
+                            face["attendance_time"] = current_time_str
+                            face["attendance_message"] = f"Punch In Recorded Successfully ({current_time_str})"
+
+                            attendance_events.append({
+                                "employee_id": emp_id,
+                                "name": emp_info["name"],
+                                "time": current_time_str,
+                                "status": "Punched In",
+                                "confidence": face.get("confidence"),
+                            })
+                            logger.info("Facenox Punch-In Recorded: %s at %s IST", emp_info["name"], current_time_str)
+                        except Exception as exc:
+                            logger.warning("Facenox attendance auto-mark error for %s: %s", emp_id, exc)
 
     return {
         "success": True,
