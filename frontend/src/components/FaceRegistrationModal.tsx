@@ -22,7 +22,8 @@ import {
   Cpu,
   CameraOff,
   Lock,
-  ShieldAlert
+  ShieldAlert,
+  Zap
 } from 'lucide-react';
 import { api } from '../lib/api';
 import * as faceapi from 'face-api.js';
@@ -441,6 +442,18 @@ export function FaceRegistrationModal({
 
   // Start the 4-Stage Guided Biometric Scan
   const handleStartGuidedScan = () => {
+    const video = videoRef.current;
+    if (!video || video.readyState < 2) {
+      setStatusMessage('Camera not ready — please wait a moment');
+      return;
+    }
+
+    // If client face-api models are not loaded, fallback immediately to instant capture
+    if (!modelsLoaded) {
+      handleCaptureBrowserInstant();
+      return;
+    }
+
     stageSamplesRef.current = { front_1: 0, turn_left: 0, turn_right: 0, front_2: 0 };
     setScanProgress(0);
     setScanStage('front_1');
@@ -448,9 +461,40 @@ export function FaceRegistrationModal({
     isScanningActiveRef.current = true;
     setIsScanningActive(true);
     setInstructionMessage('Step 1/4: Look straight at camera');
-    setStatusMessage(faceDetected
-      ? 'Hold steady looking directly at the camera...'
-      : 'Waiting for face — position yourself in front of the camera...');
+    setStatusMessage('Hold steady looking directly at the camera...');
+
+    // Safety timeout: if guided scan doesn't complete within 5 seconds, auto-capture frame
+    setTimeout(() => {
+      if (isScanningActiveRef.current) {
+        handleCaptureBrowserInstant();
+      }
+    }, 5000);
+  };
+
+  // Instant capture from browser video (no face-api needed)
+  const handleCaptureBrowserInstant = () => {
+    const video = videoRef.current;
+    if (!video || video.readyState < 2) {
+      setStatusMessage('Camera not ready — please wait a moment');
+      return;
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const b64 = canvas.toDataURL('image/jpeg', 0.90);
+      setCapturedImage(b64);
+    }
+    isScanningActiveRef.current = false;
+    setIsScanningActive(false);
+    setScanProgress(100);
+    setScanStage('complete');
+    scanStageRef.current = 'complete';
+    stopBrowserCamera();
+    setStatusMessage('Face Captured Successfully');
+    setInstructionMessage('Photo captured. Please confirm employee details below.');
   };
 
   // Finish scan in browser mode, capture snapshot, and transition to manual details form
@@ -1054,7 +1098,15 @@ export function FaceRegistrationModal({
                       </div>
                     )
                   ) : (
-                    <>
+                    <div 
+                      onClick={() => {
+                        if (!capturedImage && cameraMode === 'browser' && !cameraError) {
+                          handleCaptureBrowserInstant();
+                        }
+                      }}
+                      className="relative w-full h-full cursor-pointer"
+                      title="Click anywhere on camera view to capture face"
+                    >
                       <video 
                         ref={videoRef} 
                         autoPlay 
@@ -1066,7 +1118,7 @@ export function FaceRegistrationModal({
                         ref={canvasRef} 
                         className="absolute inset-0 w-full h-full pointer-events-none"
                       />
-                    </>
+                    </div>
                   )}
 
                   {/* Guided Instruction Badge Overlay during active scan */}
@@ -1156,15 +1208,28 @@ export function FaceRegistrationModal({
                           <span>Capture Face</span>
                         </button>
                       ) : (
-                        <button 
-                          type="button"
-                          onClick={handleStartGuidedScan}
-                          disabled={!modelsLoaded || isScanningActive}
-                          className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 disabled:opacity-40 text-white px-5 py-2 rounded-lg font-semibold text-xs shadow-md transition-all cursor-pointer disabled:cursor-not-allowed"
-                        >
-                          {isScanningActive ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
-                          {isScanningActive ? 'Scanning Angles...' : 'Start Guided Scan'}
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button 
+                            type="button"
+                            onClick={handleCaptureBrowserInstant}
+                            className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-400 text-white px-4 py-2 rounded-lg font-bold text-xs shadow-lg shadow-emerald-500/25 transition-all cursor-pointer active:scale-95"
+                            title="Instantly capture face from live camera view"
+                          >
+                            <Camera className="w-3.5 h-3.5" />
+                            <span>Capture Face</span>
+                          </button>
+
+                          <button 
+                            type="button"
+                            onClick={handleStartGuidedScan}
+                            disabled={isScanningActive}
+                            className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 disabled:opacity-50 text-white px-4 py-2 rounded-lg font-semibold text-xs shadow-md transition-all cursor-pointer active:scale-95"
+                            title="Start multi-angle guided biometric face scan"
+                          >
+                            {isScanningActive ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5 text-cyan-200" />}
+                            <span>{isScanningActive ? 'Scanning Angles...' : 'Start Guided Scan'}</span>
+                          </button>
+                        </div>
                       )}
                     </div>
                   )}
