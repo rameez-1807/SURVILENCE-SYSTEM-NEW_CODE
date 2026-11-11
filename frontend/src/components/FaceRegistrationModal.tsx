@@ -448,7 +448,9 @@ export function FaceRegistrationModal({
     isScanningActiveRef.current = true;
     setIsScanningActive(true);
     setInstructionMessage('Step 1/4: Look straight at camera');
-    setStatusMessage('Hold steady looking directly at the camera...');
+    setStatusMessage(faceDetected
+      ? 'Hold steady looking directly at the camera...'
+      : 'Waiting for face — position yourself in front of the camera...');
   };
 
   // Finish scan in browser mode, capture snapshot, and transition to manual details form
@@ -1157,7 +1159,7 @@ export function FaceRegistrationModal({
                         <button 
                           type="button"
                           onClick={handleStartGuidedScan}
-                          disabled={!modelsLoaded || isScanningActive || !faceDetected}
+                          disabled={!modelsLoaded || isScanningActive}
                           className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 disabled:opacity-40 text-white px-5 py-2 rounded-lg font-semibold text-xs shadow-md transition-all cursor-pointer disabled:cursor-not-allowed"
                         >
                           {isScanningActive ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
