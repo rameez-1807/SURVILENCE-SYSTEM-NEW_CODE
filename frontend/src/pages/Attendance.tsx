@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { 
   Search, 
   Download, 
@@ -29,6 +29,20 @@ import { FaceRegistrationModal } from '../components/FaceRegistrationModal';
 import { ManualRegistrationModal } from '../components/ManualRegistrationModal';
 import { FaceRecognitionModal } from '../components/FaceRecognitionModal';
 
+interface PunchEvent {
+  id: string;
+  record_id: number;
+  employee_id: string;
+  employee_name: string;
+  attendance_date: string;
+  punch_type: 'in' | 'out';
+  punch_time: string;
+  camera_name: string;
+  confidence: number;
+  has_punched_out: boolean;
+  raw_record: any;
+}
+
 export default function Attendance() {
   const [activeTab, setActiveTab] = useState<'employees' | 'records'>('records');
   
@@ -46,6 +60,7 @@ export default function Attendance() {
   const [dateFilter, setDateFilter] = useState('');
   const [siteFilter, setSiteFilter] = useState('all');
   const [employeeFilter, setEmployeeFilter] = useState('all');
+  const [punchViewFilter, setPunchViewFilter] = useState<'all' | 'in' | 'out' | 'combined'>('all');
 
   // Pagination States
   const [page, setPage] = useState(1);
@@ -76,7 +91,7 @@ export default function Attendance() {
   // Reset pagination to page 1 whenever filters or tab or pageSize change
   useEffect(() => {
     setPage(1);
-  }, [search, dateFilter, siteFilter, employeeFilter, activeTab, pageSize]);
+  }, [search, dateFilter, siteFilter, employeeFilter, activeTab, pageSize, punchViewFilter]);
 
   const handleDeleteFace = async (emp: any) => {
     if (!window.confirm(`Are you sure you want to remove biometric face data for ${emp.name} (${emp.employee_id})? The employee profile will be preserved.`)) {
@@ -147,28 +162,111 @@ export default function Attendance() {
     alert("Exporting biometric attendance report (CSV/PDF)...");
   };
 
-  const filteredEmployees = employees.filter(emp => {
-    return (emp.name || '').toLowerCase().includes(search.toLowerCase()) ||
-           (emp.employee_id || '').toLowerCase().includes(search.toLowerCase()) ||
-           (emp.department || '').toLowerCase().includes(search.toLowerCase());
-  });
+  const filteredEmployees = useMemo(() => {
+    return employees.filter(emp => {
+      const q = search.toLowerCase();
+      return (emp.name || '').toLowerCase().includes(q) ||
+             (emp.employee_id || '').toLowerCase().includes(q) ||
+             (emp.department || '').toLowerCase().includes(q);
+    });
+  }, [employees, search]);
 
-  const filteredRecords = records.filter(rec => {
-    const matchesSearch = (rec.employee_name || '').toLowerCase().includes(search.toLowerCase()) ||
-                          (rec.employee_id || '').toLowerCase().includes(search.toLowerCase());
-    const matchesDate = !dateFilter || rec.attendance_date === dateFilter;
-    return matchesSearch && matchesDate;
-  });
+  // Convert daily attendance records into distinct Punch Events (Punch In separate & Punch Out separate)
+  const punchEvents: PunchEvent[] = useMemo(() => {
+    const list: PunchEvent[] = [];
 
-  const activeItems = activeTab === 'records' ? filteredRecords : filteredEmployees;
+    records.forEach((rec) => {
+      const hasExit = Boolean(rec.last_seen && rec.last_seen !== rec.first_seen);
+
+      // Punch In event
+      if (rec.first_seen) {
+        list.push({
+          id: `${rec.id}-in`,
+          record_id: rec.id,
+          employee_id: rec.employee_id,
+          employee_name: rec.employee_name,
+          attendance_date: rec.attendance_date,
+          punch_type: 'in',
+          punch_time: rec.first_seen,
+          camera_name: rec.camera_name || 'Terminal-Gate-1',
+          confidence: rec.confidence || 98,
+          has_punched_out: hasExit,
+          raw_record: rec,
+        });
+      }
+
+      // Punch Out event
+      if (hasExit) {
+        list.push({
+          id: `${rec.id}-out`,
+          record_id: rec.id,
+          employee_id: rec.employee_id,
+          employee_name: rec.employee_name,
+          attendance_date: rec.attendance_date,
+          punch_type: 'out',
+          punch_time: rec.last_seen,
+          camera_name: rec.camera_name || 'Terminal-Gate-1',
+          confidence: rec.confidence || 98,
+          has_punched_out: true,
+          raw_record: rec,
+        });
+      }
+    });
+
+    // Sort chronologically descending: latest date first, then latest punch time first
+    list.sort((a, b) => {
+      const dComp = (b.attendance_date || '').localeCompare(a.attendance_date || '');
+      if (dComp !== 0) return dComp;
+      return (b.punch_time || '').localeCompare(a.punch_time || '');
+    });
+
+    return list;
+  }, [records]);
+
+  const punchInCount = useMemo(() => punchEvents.filter(e => e.punch_type === 'in').length, [punchEvents]);
+  const punchOutCount = useMemo(() => punchEvents.filter(e => e.punch_type === 'out').length, [punchEvents]);
+
+  const filteredPunchEvents = useMemo(() => {
+    return punchEvents.filter(ev => {
+      if (punchViewFilter === 'in' && ev.punch_type !== 'in') return false;
+      if (punchViewFilter === 'out' && ev.punch_type !== 'out') return false;
+
+      const q = search.toLowerCase();
+      const matchesSearch = !q ||
+        (ev.employee_name || '').toLowerCase().includes(q) ||
+        (ev.employee_id || '').toLowerCase().includes(q) ||
+        (ev.camera_name || '').toLowerCase().includes(q);
+
+      const matchesDate = !dateFilter || ev.attendance_date === dateFilter;
+      return matchesSearch && matchesDate;
+    });
+  }, [punchEvents, punchViewFilter, search, dateFilter]);
+
+  const filteredRecords = useMemo(() => {
+    return records.filter(rec => {
+      const q = search.toLowerCase();
+      const matchesSearch = !q ||
+        (rec.employee_name || '').toLowerCase().includes(q) ||
+        (rec.employee_id || '').toLowerCase().includes(q);
+      const matchesDate = !dateFilter || rec.attendance_date === dateFilter;
+      return matchesSearch && matchesDate;
+    });
+  }, [records, search, dateFilter]);
+
+  // Determine current active item list based on tab and punch view filter
+  const activeItems = useMemo(() => {
+    if (activeTab === 'employees') return filteredEmployees;
+    if (punchViewFilter === 'combined') return filteredRecords;
+    return filteredPunchEvents;
+  }, [activeTab, filteredEmployees, punchViewFilter, filteredRecords, filteredPunchEvents]);
+
   const totalItems = activeItems.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
   const safePage = Math.min(Math.max(1, page), totalPages);
   const startIndex = (safePage - 1) * pageSize;
   const endIndex = Math.min(startIndex + pageSize, totalItems);
 
-  const displayedRecords = filteredRecords.slice(startIndex, endIndex);
-  const displayedEmployees = filteredEmployees.slice(startIndex, endIndex);
+  const displayedItems = activeItems.slice(startIndex, endIndex);
 
   return (
     <div className="space-y-6 animate-fade-in select-none">
@@ -179,7 +277,11 @@ export default function Attendance() {
         icon={Users}
         badge={
           <Badge variant="cyan" size="xs">
-            {activeTab === 'employees' ? `${employees.length} ENROLLED` : `${records.length} CHECK-INS`}
+            {activeTab === 'employees' 
+              ? `${employees.length} ENROLLED` 
+              : punchViewFilter === 'combined' 
+                ? `${records.length} DAILY LOGS` 
+                : `${punchEvents.length} TOTAL PUNCHES`}
           </Badge>
         }
       >
@@ -307,13 +409,13 @@ export default function Attendance() {
         </div>
       )}
 
-      {/* Tabs Selector */}
-      <div className="flex items-center justify-between gap-4 border-b border-border/60 pb-3">
+      {/* Tabs Selector & Punch Sub-View Filter */}
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 border-b border-border/60 pb-3">
         <div className="flex items-center gap-1.5 bg-[#0a0f1d] p-1 rounded-2xl border border-border/80">
           <button
             onClick={() => setActiveTab('records')}
             className={cn(
-              "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200",
+              "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer",
               activeTab === 'records' 
                 ? "bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-md shadow-blue-500/20" 
                 : "text-text-muted hover:text-white"
@@ -326,7 +428,7 @@ export default function Attendance() {
           <button
             onClick={() => setActiveTab('employees')}
             className={cn(
-              "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200",
+              "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer",
               activeTab === 'employees' 
                 ? "bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-md shadow-blue-500/20" 
                 : "text-text-muted hover:text-white"
@@ -336,6 +438,91 @@ export default function Attendance() {
             <span>Personnel Directory</span>
           </button>
         </div>
+
+        {/* Punch In / Punch Out Separate Sub-View Switcher */}
+        {activeTab === 'records' && (
+          <div className="flex flex-wrap items-center gap-1.5 bg-[#0a0f1d] p-1 rounded-2xl border border-border/80 text-xs">
+            <button
+              onClick={() => setPunchViewFilter('all')}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer",
+                punchViewFilter === 'all'
+                  ? "bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-md shadow-blue-500/25"
+                  : "text-text-muted hover:text-white"
+              )}
+              title="Show each Punch In and Punch Out as its own separate row"
+            >
+              <Zap className="w-3.5 h-3.5 text-cyan-200" />
+              <span>All Punches (Separate)</span>
+              <span className={cn(
+                "px-1.5 py-0.2 rounded text-[10px] font-mono",
+                punchViewFilter === 'all' ? "bg-white/20 text-white" : "bg-white/5 text-text-muted"
+              )}>
+                {punchEvents.length}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setPunchViewFilter('in')}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer",
+                punchViewFilter === 'in'
+                  ? "bg-emerald-600 text-white shadow-md shadow-emerald-500/25"
+                  : "text-text-muted hover:text-emerald-400"
+              )}
+              title="Show only Punch In (Entry) logs"
+            >
+              <LogIn className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Punch In Logs</span>
+              <span className={cn(
+                "px-1.5 py-0.2 rounded text-[10px] font-mono",
+                punchViewFilter === 'in' ? "bg-white/20 text-white" : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+              )}>
+                {punchInCount}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setPunchViewFilter('out')}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer",
+                punchViewFilter === 'out'
+                  ? "bg-rose-600 text-white shadow-md shadow-rose-500/25"
+                  : "text-text-muted hover:text-rose-400"
+              )}
+              title="Show only Punch Out (Exit) logs"
+            >
+              <LogOut className="w-3.5 h-3.5 text-rose-400" />
+              <span>Punch Out Logs</span>
+              <span className={cn(
+                "px-1.5 py-0.2 rounded text-[10px] font-mono",
+                punchViewFilter === 'out' ? "bg-white/20 text-white" : "bg-rose-500/10 text-rose-400 border border-rose-500/20"
+              )}>
+                {punchOutCount}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setPunchViewFilter('combined')}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer",
+                punchViewFilter === 'combined'
+                  ? "bg-slate-700 text-white shadow-md"
+                  : "text-text-muted hover:text-white"
+              )}
+              title="Show combined daily summary"
+            >
+              <CalendarClock className="w-3.5 h-3.5 text-slate-300" />
+              <span>Daily Combined</span>
+              <span className={cn(
+                "px-1.5 py-0.2 rounded text-[10px] font-mono",
+                punchViewFilter === 'combined' ? "bg-white/20 text-white" : "bg-white/5 text-text-muted"
+              )}>
+                {records.length}
+              </span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Main Glass Table Container */}
@@ -401,7 +588,13 @@ export default function Attendance() {
               </span>
               <span>OF</span>
               <span className="font-bold text-cyan-400 font-mono">{totalItems}</span>
-              <span>{activeTab === 'records' ? 'RECORDS' : 'PERSONNEL'}</span>
+              <span>
+                {activeTab === 'employees' 
+                  ? 'PERSONNEL' 
+                  : punchViewFilter === 'combined' 
+                    ? 'DAILY RECORDS' 
+                    : 'PUNCH EVENTS'}
+              </span>
             </div>
 
             <div className="h-3.5 w-px bg-border/60 hidden sm:block" />
@@ -526,7 +719,7 @@ export default function Attendance() {
                       </td>
                     </tr>
                   ) : (
-                    displayedEmployees.map((emp, idx) => (
+                    displayedItems.map((emp: any, idx: number) => (
                       <tr key={emp.id} className="hover:bg-white/[0.02] transition-colors group">
                         <td className="px-5 py-3.5 font-mono text-text-dim">{startIndex + idx + 1}</td>
                         <td className="px-5 py-3.5">
@@ -592,7 +785,8 @@ export default function Attendance() {
                   )}
                 </tbody>
               </table>
-            ) : (
+            ) : punchViewFilter === 'combined' ? (
+              /* COMBINED DAILY ATTENDANCE TABLE */
               <table className="w-full text-left text-xs border-collapse">
                 <thead className="bg-surface/80 border-b border-border/60 text-text-muted font-mono uppercase tracking-wider text-[11px] sticky top-0 backdrop-blur-md">
                   <tr>
@@ -626,7 +820,7 @@ export default function Attendance() {
                       </td>
                     </tr>
                   ) : (
-                    displayedRecords.map((rec, idx) => {
+                    displayedItems.map((rec: any, idx: number) => {
                       const isPunchedOut = Boolean(rec.last_seen && rec.last_seen !== rec.first_seen);
                       return (
                         <tr key={rec.id} className="hover:bg-white/[0.02] transition-colors group">
@@ -640,8 +834,8 @@ export default function Attendance() {
                           </td>
                           <td className="px-5 py-3.5 font-mono">
                             {isPunchedOut ? (
-                              <span className="text-cyan-300 font-semibold">
-                                <span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan-400 mr-1.5"></span>
+                              <span className="text-rose-400 font-semibold">
+                                <span className="inline-block w-1.5 h-1.5 rounded-full bg-rose-400 mr-1.5"></span>
                                 {rec.last_seen}
                               </span>
                             ) : (
@@ -651,7 +845,7 @@ export default function Attendance() {
                           <td className="px-5 py-3.5 text-text-muted">{rec.camera_name || 'Terminal-Gate-1'}</td>
                           <td className="px-5 py-3.5 font-mono text-cyan-400 font-bold">{rec.confidence || 98}%</td>
                           <td className="px-5 py-3.5">
-                            <Badge variant={isPunchedOut ? 'cyan' : 'success'} size="xs" dot>
+                            <Badge variant={isPunchedOut ? 'danger' : 'success'} size="xs" dot>
                               {isPunchedOut ? 'PUNCHED OUT' : 'PUNCHED IN'}
                             </Badge>
                           </td>
@@ -674,6 +868,109 @@ export default function Attendance() {
                   )}
                 </tbody>
               </table>
+            ) : (
+              /* SEPARATE PUNCH IN & PUNCH OUT EVENTS TABLE */
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="bg-surface/80 border-b border-border/60 text-text-muted font-mono uppercase tracking-wider text-[11px] sticky top-0 backdrop-blur-md">
+                  <tr>
+                    <th className="px-5 py-3.5">#</th>
+                    <th className="px-5 py-3.5">Employee ID</th>
+                    <th className="px-5 py-3.5">Subject Name</th>
+                    <th className="px-5 py-3.5">Date</th>
+                    <th className="px-5 py-3.5">Punch Type</th>
+                    <th className="px-5 py-3.5">Recorded Time</th>
+                    <th className="px-5 py-3.5">Camera Source</th>
+                    <th className="px-5 py-3.5">Confidence</th>
+                    <th className="px-5 py-3.5">Status</th>
+                    <th className="px-5 py-3.5 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/40">
+                  {filteredPunchEvents.length === 0 ? (
+                    <tr>
+                      <td colSpan={10} className="px-6 py-16 text-center">
+                        <EmptyState
+                          icon={CalendarClock}
+                          title="No punch logs found"
+                          description="Individual Punch In and Punch Out events will appear here when employees scan face or register attendance."
+                          action={{
+                            label: "Test Live Face Punch",
+                            onClick: () => setIsRecognitionModalOpen(true),
+                            icon: Scan
+                          }}
+                          className="border-0 bg-transparent"
+                        />
+                      </td>
+                    </tr>
+                  ) : (
+                    displayedItems.map((item: any, idx: number) => {
+                      const isPunchIn = item.punch_type === 'in';
+                      return (
+                        <tr key={item.id} className="hover:bg-white/[0.02] transition-colors group">
+                          <td className="px-5 py-3.5 font-mono text-text-dim">{startIndex + idx + 1}</td>
+                          <td className="px-5 py-3.5 font-mono text-cyan-400 font-semibold">{item.employee_id}</td>
+                          <td className="px-5 py-3.5 font-semibold text-text">{item.employee_name}</td>
+                          <td className="px-5 py-3.5 font-mono text-text-muted">{item.attendance_date}</td>
+                          <td className="px-5 py-3.5">
+                            {isPunchIn ? (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                                <LogIn className="w-3.5 h-3.5 text-emerald-400" />
+                                <span>PUNCH IN</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-rose-500/15 text-rose-300 border border-rose-500/30">
+                                <span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
+                                <LogOut className="w-3.5 h-3.5 text-rose-400" />
+                                <span>PUNCH OUT</span>
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-5 py-3.5 font-mono">
+                            <span className={cn(
+                              "font-bold text-xs inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border font-mono",
+                              isPunchIn 
+                                ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" 
+                                : "text-rose-400 bg-rose-500/10 border-rose-500/20"
+                            )}>
+                              <Clock className="w-3 h-3 opacity-80" />
+                              {item.punch_time}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3.5 text-text-muted">{item.camera_name || 'Terminal-Gate-1'}</td>
+                          <td className="px-5 py-3.5 font-mono text-cyan-400 font-bold">{item.confidence || 98}%</td>
+                          <td className="px-5 py-3.5">
+                            {isPunchIn ? (
+                              item.has_punched_out ? (
+                                <Badge variant="cyan" size="xs">PUNCHED IN (EXIT LOGGED)</Badge>
+                              ) : (
+                                <Badge variant="success" size="xs" dot pulse>ACTIVE (IN SHIFT)</Badge>
+                              )
+                            ) : (
+                              <Badge variant="danger" size="xs" dot>PUNCHED OUT</Badge>
+                            )}
+                          </td>
+                          <td className="px-5 py-3.5 text-right">
+                            {isPunchIn && !item.has_punched_out ? (
+                              <button
+                                type="button"
+                                onClick={() => handleQuickPunchOut(item.raw_record)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 rounded-lg text-[11px] font-semibold transition-all hover:scale-105 active:scale-95 cursor-pointer shadow-sm shadow-rose-500/10"
+                                title="Click to record Punch Out (Exit) now"
+                              >
+                                <LogOut className="w-3 h-3" />
+                                <span>Punch Out</span>
+                              </button>
+                            ) : (
+                              <span className="text-text-muted/40 font-mono text-[11px]">Recorded</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
             )}
           </div>
         )}
@@ -681,21 +978,21 @@ export default function Attendance() {
         {/* Bottom Pagination Bar */}
         <div className="p-3.5 border-t border-border/60 flex flex-wrap items-center justify-between gap-3 text-xs text-text-muted bg-[#050811]/80 font-mono">
           <div>
-            PAGE <span className="font-bold text-white">{safePage}</span> OF <span className="font-bold text-white">{totalPages}</span> ({totalItems} TOTAL {activeTab === 'records' ? 'RECORDS' : 'PERSONNEL'})
+            PAGE <span className="font-bold text-white">{safePage}</span> OF <span className="font-bold text-white">{totalPages}</span> ({totalItems} TOTAL {activeTab === 'employees' ? 'PERSONNEL' : punchViewFilter === 'combined' ? 'DAILY RECORDS' : 'PUNCH EVENTS'})
           </div>
 
           <div className="flex items-center gap-1.5">
             <button
               onClick={() => setPage(1)}
               disabled={safePage <= 1}
-              className="px-2.5 py-1 rounded-lg border border-border/80 hover:bg-surface-hover text-white disabled:opacity-30 disabled:cursor-not-allowed text-[11px] transition-colors"
+              className="px-2.5 py-1 rounded-lg border border-border/80 hover:bg-surface-hover text-white disabled:opacity-30 disabled:cursor-not-allowed text-[11px] transition-colors cursor-pointer"
             >
               FIRST
             </button>
             <button
               onClick={() => setPage(p => Math.max(1, p - 1))}
               disabled={safePage <= 1}
-              className="p-1.5 rounded-lg border border-border/80 hover:bg-surface-hover text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              className="p-1.5 rounded-lg border border-border/80 hover:bg-surface-hover text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
               title="Previous Page"
             >
               <ChevronLeft className="w-4 h-4" />
@@ -706,7 +1003,7 @@ export default function Attendance() {
             <button
               onClick={() => setPage(p => Math.min(totalPages, p + 1))}
               disabled={safePage >= totalPages}
-              className="p-1.5 rounded-lg border border-border/80 hover:bg-surface-hover text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              className="p-1.5 rounded-lg border border-border/80 hover:bg-surface-hover text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
               title="Next Page"
             >
               <ChevronRight className="w-4 h-4" />
@@ -714,7 +1011,7 @@ export default function Attendance() {
             <button
               onClick={() => setPage(totalPages)}
               disabled={safePage >= totalPages}
-              className="px-2.5 py-1 rounded-lg border border-border/80 hover:bg-surface-hover text-white disabled:opacity-30 disabled:cursor-not-allowed text-[11px] transition-colors"
+              className="px-2.5 py-1 rounded-lg border border-border/80 hover:bg-surface-hover text-white disabled:opacity-30 disabled:cursor-not-allowed text-[11px] transition-colors cursor-pointer"
             >
               LAST
             </button>
