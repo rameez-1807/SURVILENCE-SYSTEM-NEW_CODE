@@ -99,19 +99,85 @@ async def lifespan(app: FastAPI):
         pass
 
 
+TAGS_METADATA = [
+    {
+        "name": "Attendance",
+        "description": "Biometric face attendance, 1-click Punch In / Punch Out, Facenox live scanning with anti-spoofing, and HRMS cloud sync.",
+    },
+    {
+        "name": "Employees",
+        "description": "Employee profile management, face biometric vector enrollment, and credential updates.",
+    },
+    {
+        "name": "Vehicles / ANPR",
+        "description": "Automatic Number Plate Recognition (ANPR), Indian yellow plate parsing, and vehicle history logs.",
+    },
+    {
+        "name": "Detection Pipeline",
+        "description": "Real-time YOLOv8, YOLO11, and RF-DETR object detection pipeline telemetry, FPS, and tracking state.",
+    },
+    {
+        "name": "Detection Zones",
+        "description": "Camera Region of Interest (ROI) polygon zones, tripwires, and sensitivity configuration.",
+    },
+    {
+        "name": "Events",
+        "description": "Security events, Groq Multimodal AI Vision verification, and Human-in-the-Loop review queue.",
+    },
+    {
+        "name": "Evidence",
+        "description": "Snapshot and video evidence vault, direct media preview, and signed secure download URLs.",
+    },
+    {
+        "name": "Cameras",
+        "description": "Multi-camera matrix, RTSP streams, USB webcams, and frame acquisition.",
+    },
+    {
+        "name": "Auth",
+        "description": "OAuth2 JWT token authentication and access control.",
+    },
+    {
+        "name": "Tenants",
+        "description": "Multi-tenant organization hierarchy and data isolation.",
+    },
+    {
+        "name": "Sites",
+        "description": "Physical site and facility management.",
+    },
+    {
+        "name": "Rules",
+        "description": "Security alerting rules, zone violation conditions, and incident triggers.",
+    },
+    {
+        "name": "Recognition History",
+        "description": "Face recognition history, search queries, and historical match logs.",
+    },
+    {
+        "name": "Health",
+        "description": "System health and telemetry status.",
+    },
+]
+
+
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(
-        title=settings.APP_NAME,
+        title=f"{settings.APP_NAME} — Enterprise API",
         version=settings.APP_VERSION,
         description=(
-            "Backend API for the AI Surveillance System. "
-            "Provides endpoints for camera management, AI-powered "
-            "video analytics, and real-time event monitoring."
+            "### 🛡️ AI Surveillance, Biometrics & Real-Time Analytics Platform\n\n"
+            "Comprehensive RESTful and WebSocket API providing:\n"
+            "- **Biometric Attendance & Facenox SOTA Face Recognition**: ArcFace 512-d matching, MiniFASNetV2 anti-spoofing, dual punch-in / punch-out events.\n"
+            "- **Real-Time Video Analytics**: YOLOv8, YOLO11, and RF-DETR object detection with ByteTrack persistent identity tracking.\n"
+            "- **ANPR License Plate Recognition**: Indian vehicle plate OCR and parking access management.\n"
+            "- **Groq Multimodal AI Vision**: Secondary semantic scene verification using `qwen/qwen3.6-27b`.\n"
+            "- **Human-in-the-Loop Review Queue**: Instant label correction and incident audit workflows.\n\n"
+            "Interactive Swagger documentation is available at `/docs`, ReDoc at `/redoc`, and OpenAPI JSON schema at `/openapi.json`."
         ),
         docs_url="/docs",
         redoc_url="/redoc",
         openapi_url="/openapi.json",
+        openapi_tags=TAGS_METADATA,
         lifespan=lifespan,
     )
 
